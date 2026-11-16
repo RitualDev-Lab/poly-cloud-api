@@ -27,7 +27,7 @@
     "build": "tsc",
     "start": "node dist/bin/poly-cloud-api.js",
     "dev": "tsx watch bin/poly-cloud-api.ts",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test",
     "check": "biome check .",
     "check:fix": "biome check --write ."
   },
