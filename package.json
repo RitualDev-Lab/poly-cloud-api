@@ -1,0 +1,72 @@
+{
+  "name": "@ritualdev-lab/poly-cloud-api",
+  "version": "0.1.0",
+  "description": "High-Performance Enterprise Remote Cache & Analytics Server for Polyglot monorepos and build pipelines.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "bin": {
+    "poly-cloud-api": "./dist/bin/poly-cloud-api.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./client": {
+      "types": "./dist/src/client/index.d.ts",
+      "import": "./dist/src/client/index.js"
+    },
+    "./storage": {
+      "types": "./dist/src/storage/index.d.ts",
+      "import": "./dist/src/storage/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/bin/poly-cloud-api.js",
+    "dev": "tsx watch bin/poly-cloud-api.ts",
+    "test": "tsx --test tests/**/*.test.ts",
+    "check": "biome check .",
+    "check:fix": "biome check --write ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RitualDev-Lab/poly-cloud-api.git"
+  },
+  "keywords": [
+    "poly",
+    "remote-cache",
+    "caching",
+    "turborepo",
+    "build-system",
+    "monorepo",
+    "fastify",
+    "s3",
+    "cloudflare-r2",
+    "polyglot"
+  ],
+  "author": "RitualDev-Lab",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/RitualDev-Lab/poly-cloud-api/issues"
+  },
+  "homepage": "https://github.com/RitualDev-Lab/poly-cloud-api#readme",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.750.0",
+    "@aws-sdk/s3-request-presigner": "^3.750.0",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/sensible": "^6.0.3",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  poly-cloud-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - STORAGE_BACKEND=s3
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=poly-remote-cache
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY_ID=minioadmin
+      - S3_SECRET_ACCESS_KEY=minioadmin
+      - S3_FORCE_PATH_STYLE=true
+      - AUTH_ENABLED=true
+      - DEFAULT_ADMIN_TOKEN=poly_enterprise_master_token_local
+    depends_on:
+      - minio
+    volumes:
+      - poly-metadata:/app/data
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  poly-metadata:
+  minio-data:
