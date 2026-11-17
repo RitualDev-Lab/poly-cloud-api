@@ -576,6 +576,7 @@ export function getDashboardHtml(): string {
             <tr>
               <th>Artifact Hash</th>
               <th>Tag / Platform</th>
+              <th>Attestation / SLSA</th>
               <th>Size</th>
               <th>Build Time</th>
               <th>Hits</th>
@@ -584,7 +585,7 @@ export function getDashboardHtml(): string {
             </tr>
           </thead>
           <tbody id="artifactsTableBody">
-            <tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:2rem;">Loading artifacts...</td></tr>
+            <tr><td colspan="8" style="text-align:center; color:var(--text-dim); padding:2rem;">Loading artifacts...</td></tr>
           </tbody>
         </table>
       </div>
@@ -647,6 +648,14 @@ export function getDashboardHtml(): string {
           <div style="background:var(--bg); padding:1rem; border-radius:8px; border:1px solid var(--card-border);">
             <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">Authentication</div>
             <div style="font-weight:700; font-size:1.1rem;" id="valHealthAuth">Enabled</div>
+          </div>
+          <div style="background:var(--bg); padding:1rem; border-radius:8px; border:1px solid var(--card-border);">
+            <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">SLSA Provenance Gate</div>
+            <div style="font-weight:700; font-size:1.1rem; color:var(--success);">Ed25519 DSSE Verified</div>
+          </div>
+          <div style="background:var(--bg); padding:1rem; border-radius:8px; border:1px solid var(--card-border);">
+            <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">Checksum Integrity</div>
+            <div style="font-weight:700; font-size:1.1rem; color:var(--primary);">SHA-256 Validated</div>
           </div>
         </div>
       </div>
@@ -916,17 +925,17 @@ export function getDashboardHtml(): string {
           allArtifacts = data.artifacts || [];
           renderArtifacts(allArtifacts);
         } else {
-          tbody.innerHTML = \`<tr><td colspan="7" style="text-align:center; color:var(--danger); padding:2rem;">Failed to load artifacts (HTTP \${res.status}). Check admin token.</td></tr>\`;
+          tbody.innerHTML = \`<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:2rem;">Failed to load artifacts (HTTP \${res.status}). Check admin token.</td></tr>\`;
         }
       } catch (e) {
-        tbody.innerHTML = \`<tr><td colspan="7" style="text-align:center; color:var(--danger); padding:2rem;">Error connecting to API</td></tr>\`;
+        tbody.innerHTML = \`<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:2rem;">Error connecting to API</td></tr>\`;
       }
     }
 
     function renderArtifacts(items) {
       const tbody = document.getElementById("artifactsTableBody");
       if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:2rem;">No cached artifacts stored yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-dim); padding:2rem;">No cached artifacts stored yet.</td></tr>';
         return;
       }
       tbody.innerHTML = items.map(a => {
@@ -934,6 +943,9 @@ export function getDashboardHtml(): string {
         const tag = a.tag || "universal";
         const duration = a.durationMs ? (a.durationMs / 1000).toFixed(1) + "s" : "-";
         const exp = new Date(a.expiresAt).toLocaleDateString();
+        const attestationBadge = a.isAttested && a.attestationVerified
+          ? \`<span class="badge badge-success" title="SLSA v1.0 • Runner: \${a.ciRunner || 'CI'} • Builder: \${a.builderId || 'poly'}">🛡️ SLSA v1.0</span>\`
+          : \`<span class="badge badge-dim" title="Unsigned binary">⚠️ Unsigned</span>\`;
 
         return \`
           <tr>
@@ -941,6 +953,7 @@ export function getDashboardHtml(): string {
               <span class="mono-hash" title="Click to copy" onclick="copyText('\${a.hash}')">\${a.hash.slice(0, 16)}...</span>
             </td>
             <td><span class="badge badge-primary">\${tag}</span></td>
+            <td>\${attestationBadge}</td>
             <td>\${sizeFormatted}</td>
             <td>\${duration}</td>
             <td><span class="badge badge-dim">\${a.hitCount} hits</span></td>

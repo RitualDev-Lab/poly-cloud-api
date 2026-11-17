@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type {
+  ArtifactAttestationRecord,
+  DsseEnvelope,
+  InTotoStatement,
+} from "../attestation/types.js";
 
 export interface RemoteCacheClientOptions {
   apiUrl: string;
@@ -126,7 +131,13 @@ export class RemoteCacheClient {
   async upload(
     hash: string,
     data: Buffer,
-    options?: { tag?: string; durationMs?: number; preferPresigned?: boolean },
+    options?: {
+      tag?: string;
+      durationMs?: number;
+      preferPresigned?: boolean;
+      attestation?: DsseEnvelope | string;
+      checksumSha256?: string;
+    },
   ): Promise<boolean> {
     const usePresigned = options?.preferPresigned ?? this.preferPresignedUrls;
 
@@ -148,7 +159,7 @@ export class RemoteCacheClient {
           });
 
           if (directPut.ok) {
-            // Confirm upload to server
+            // Confirm upload to server with attestation & checksum
             const confirmRes = await fetch(this.getUrl(`/v8/artifacts/${hash}/complete`), {
               method: "POST",
               headers: {
@@ -159,6 +170,8 @@ export class RemoteCacheClient {
                 sizeBytes: data.length,
                 tag: options?.tag,
                 durationMs: options?.durationMs,
+                checksumSha256: options?.checksumSha256,
+                attestation: options?.attestation,
               }),
               signal: AbortSignal.timeout(this.timeoutMs),
             });
@@ -179,6 +192,15 @@ export class RemoteCacheClient {
       };
       if (options?.tag) headers["x-artifact-tag"] = options.tag;
       if (options?.durationMs) headers["x-artifact-duration"] = options.durationMs.toString();
+      if (options?.attestation) {
+        headers["x-poly-attestation"] =
+          typeof options.attestation === "string"
+            ? options.attestation
+            : JSON.stringify(options.attestation);
+      }
+      if (options?.checksumSha256) {
+        headers["x-artifact-sha256"] = options.checksumSha256;
+      }
 
       const res = await fetch(this.getUrl(`/v8/artifacts/${hash}`), {
         method: "PUT",
@@ -189,6 +211,37 @@ export class RemoteCacheClient {
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  async attachAttestation(hash: string, attestation: DsseEnvelope | string): Promise<boolean> {
+    try {
+      const res = await fetch(this.getUrl(`/v8/artifacts/${hash}/attestation`), {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ envelope: attestation }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async getAttestation(hash: string): Promise<ArtifactAttestationRecord | null> {
+    try {
+      const res = await fetch(this.getUrl(`/v8/artifacts/${hash}/attestation`), {
+        method: "GET",
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as ArtifactAttestationRecord;
+    } catch {
+      return null;
     }
   }
 

@@ -1,4 +1,7 @@
+import crypto from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { CorporateAttestationPolicy, DsseEnvelope } from "../attestation/types.js";
+import { AttestationVerifier } from "../attestation/verifier.js";
 import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore } from "../metadata/types.js";
 import { createAuthHook } from "../middleware/auth.js";
@@ -18,6 +21,21 @@ export async function registerArtifactRoutes(
 
   const readAuth = createAuthHook({ store, config }, "read");
   const writeAuth = createAuthHook({ store, config }, "write");
+
+  const verifier = new AttestationVerifier();
+
+  function getPolicy(): CorporateAttestationPolicy {
+    return {
+      requireAttestation: config.attestationRequired,
+      trustedPublicKeys: config.attestationTrustedKeys,
+      allowedRunners: config.attestationAllowedRunners,
+      allowedArchitectures: config.attestationAllowedArchitectures,
+      allowedPlatforms: config.attestationAllowedPlatforms,
+      allowedBuilders: config.attestationAllowedBuilders,
+      enforceChecksumMatch: config.checksumVerificationEnabled,
+      enforceSubjectMatch: true,
+    };
+  }
 
   // GET /v8/artifacts/:hash - Fetch cached artifact (or 307 Redirect to S3/R2 presigned URL)
   app.get<{
@@ -198,12 +216,14 @@ export async function registerArtifactRoutes(
       sizeBytes?: number;
       tag?: string;
       durationMs?: number;
+      checksumSha256?: string;
+      attestation?: DsseEnvelope | string;
     };
   }>("/v8/artifacts/:hash/complete", { preHandler: writeAuth }, async (request, reply) => {
     const hash = request.params.hash;
     const workspace = request.workspace!;
     const storageKey = `${workspace.id}/${hash}`;
-    const { sizeBytes, tag, durationMs } = request.body || {};
+    const { sizeBytes, tag, durationMs, checksumSha256, attestation } = request.body || {};
 
     // Verify that artifact was actually stored in storage backend
     const stat = await storage.stat(storageKey);
@@ -214,14 +234,62 @@ export async function registerArtifactRoutes(
       });
     }
 
+    // Determine payload SHA-256 for integrity check
+    let payloadSha256 = checksumSha256 || "";
+    if (!payloadSha256) {
+      const buffer = await storage.getBuffer(storageKey);
+      if (buffer) {
+        payloadSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+      } else {
+        payloadSha256 = hash;
+      }
+    }
+
+    // Enforce Corporate Policy Gate, Checksum Integrity, and Attestation
+    const policy = getPolicy();
+    const evalResult = verifier.evaluatePolicy({
+      envelope: attestation,
+      artifactHash: hash,
+      payloadSha256,
+      expectedChecksum: checksumSha256,
+      policy,
+    });
+
+    if (!evalResult.valid) {
+      await storage.delete(storageKey);
+      const isChecksumViolation = evalResult.violations.some((v) =>
+        v.startsWith("CHECKSUM_MISMATCH"),
+      );
+      return reply.code(isChecksumViolation ? 400 : 403).send({
+        error: isChecksumViolation ? "Checksum Mismatch" : "Corporate Policy Violation",
+        message: evalResult.error,
+        violations: evalResult.violations,
+      });
+    }
+
     const finalSize = stat.sizeBytes ?? sizeBytes ?? 0;
+
+    let parsedEnv: DsseEnvelope | undefined;
+    if (attestation && evalResult.signatureVerified) {
+      try {
+        parsedEnv = verifier.parseEnvelope(attestation);
+      } catch {}
+    }
 
     const record = await store.recordArtifact({
       hash,
       workspaceId: workspace.id,
       sizeBytes: finalSize,
+      sha256: payloadSha256,
       tag,
       durationMs,
+      isAttested: evalResult.signatureVerified,
+      attestationVerified: evalResult.signatureVerified,
+      attestationSignerKeyId: evalResult.signerKeyId,
+      builderId: evalResult.builderId,
+      ciRunner: evalResult.ciRunner,
+      attestationStatement: evalResult.statement,
+      attestationEnvelope: parsedEnv,
     });
 
     await store.recordEvent({
@@ -235,6 +303,10 @@ export async function registerArtifactRoutes(
       status: "stored",
       hash: record.hash,
       sizeBytes: record.sizeBytes,
+      sha256: payloadSha256,
+      attested: record.isAttested ?? false,
+      verified: record.attestationVerified ?? false,
+      signerKeyId: record.attestationSignerKeyId,
     });
   });
 
@@ -272,6 +344,10 @@ export async function registerArtifactRoutes(
       const tag = request.headers["x-artifact-tag"] as string | undefined;
       const durationHeader = request.headers["x-artifact-duration"];
       const durationMs = durationHeader ? Number.parseInt(durationHeader as string, 10) : undefined;
+      const attestationHeader = (request.headers["x-poly-attestation"] ||
+        request.headers["x-artifact-attestation"]) as string | undefined;
+      const explicitChecksum = (request.headers["x-artifact-sha256"] ||
+        request.headers["x-poly-sha256"]) as string | undefined;
 
       // Handle raw body stream or buffer
       let bodyData: Buffer | import("node:stream").Readable;
@@ -297,14 +373,53 @@ export async function registerArtifactRoutes(
       }
 
       const putResult = await storage.put(storageKey, bodyData, contentLength);
+      const payloadSha256 = putResult.sha256 || "";
+
+      // Enforce Corporate Policy Gate, Checksum Integrity, and Attestation
+      const policy = getPolicy();
+      const evalResult = verifier.evaluatePolicy({
+        envelope: attestationHeader,
+        artifactHash: hash,
+        payloadSha256,
+        expectedChecksum: explicitChecksum,
+        policy,
+      });
+
+      if (!evalResult.valid) {
+        // Prevent cache poisoning: remove rejected binary immediately
+        await storage.delete(storageKey);
+        const isChecksumViolation = evalResult.violations.some((v) =>
+          v.startsWith("CHECKSUM_MISMATCH"),
+        );
+        return reply.code(isChecksumViolation ? 400 : 403).send({
+          error: isChecksumViolation ? "Checksum Mismatch" : "Corporate Policy Violation",
+          message: evalResult.error,
+          violations: evalResult.violations,
+        });
+      }
+
+      let parsedEnv: DsseEnvelope | undefined;
+      if (attestationHeader && evalResult.signatureVerified) {
+        try {
+          parsedEnv = verifier.parseEnvelope(attestationHeader);
+        } catch {}
+      }
 
       // Record metadata
       const record = await store.recordArtifact({
         hash,
         workspaceId: workspace.id,
         sizeBytes: putResult.sizeBytes,
+        sha256: putResult.sha256,
         tag,
         durationMs,
+        isAttested: evalResult.signatureVerified,
+        attestationVerified: evalResult.signatureVerified,
+        attestationSignerKeyId: evalResult.signerKeyId,
+        builderId: evalResult.builderId,
+        ciRunner: evalResult.ciRunner,
+        attestationStatement: evalResult.statement,
+        attestationEnvelope: parsedEnv,
       });
 
       // Record upload event
@@ -320,6 +435,112 @@ export async function registerArtifactRoutes(
         hash: record.hash,
         sizeBytes: record.sizeBytes,
         sha256: putResult.sha256,
+        attested: record.isAttested ?? false,
+        verified: record.attestationVerified ?? false,
+        signerKeyId: record.attestationSignerKeyId,
+      });
+    },
+  );
+
+  // POST /v8/artifacts/:hash/attestation - Submit & verify cryptographic in-toto attestation
+  app.post<{
+    Params: { hash: string };
+    Body: { envelope: DsseEnvelope | string };
+  }>("/v8/artifacts/:hash/attestation", { preHandler: writeAuth }, async (request, reply) => {
+    const hash = request.params.hash;
+    const workspace = request.workspace!;
+    const storageKey = `${workspace.id}/${hash}`;
+
+    const exists = await storage.has(storageKey);
+    if (!exists) {
+      return reply.code(404).send({
+        error: "Not Found",
+        message: `Artifact '${hash}' not found in workspace '${workspace.slug}'`,
+      });
+    }
+
+    const meta = await store.getArtifact(workspace.id, hash);
+    let payloadSha256 = meta?.sha256 || "";
+    if (!payloadSha256) {
+      const buffer = await storage.getBuffer(storageKey);
+      if (buffer) {
+        payloadSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+      } else {
+        payloadSha256 = hash;
+      }
+    }
+
+    const policy = getPolicy();
+    const evalResult = verifier.evaluatePolicy({
+      envelope: request.body.envelope,
+      artifactHash: hash,
+      payloadSha256,
+      policy,
+    });
+
+    if (!evalResult.valid) {
+      return reply.code(403).send({
+        error: "Corporate Policy Violation",
+        message: evalResult.error,
+        violations: evalResult.violations,
+      });
+    }
+
+    const parsedEnv = verifier.parseEnvelope(request.body.envelope);
+    await store.attachAttestation({
+      workspaceId: workspace.id,
+      hash,
+      isAttested: true,
+      attestationVerified: evalResult.signatureVerified,
+      attestationSignerKeyId: evalResult.signerKeyId,
+      builderId: evalResult.builderId,
+      ciRunner: evalResult.ciRunner,
+      attestationEnvelope: parsedEnv,
+      attestationStatement: evalResult.statement,
+    });
+
+    return reply.code(200).send({
+      status: "attested",
+      verified: true,
+      signerKeyId: evalResult.signerKeyId,
+      builderId: evalResult.builderId,
+      ciRunner: evalResult.ciRunner,
+      statement: evalResult.statement,
+    });
+  });
+
+  // GET /v8/artifacts/:hash/attestation - Retrieve verified SLSA attestation statement
+  app.get<{ Params: { hash: string } }>(
+    "/v8/artifacts/:hash/attestation",
+    { preHandler: readAuth },
+    async (request, reply) => {
+      const hash = request.params.hash;
+      const workspace = request.workspace!;
+      const meta = await store.getArtifact(workspace.id, hash);
+
+      if (!meta) {
+        return reply.code(404).send({
+          error: "Not Found",
+          message: `Artifact '${hash}' not found in workspace '${workspace.slug}'`,
+        });
+      }
+
+      if (!meta.isAttested || !meta.attestationStatement) {
+        return reply.code(404).send({
+          error: "Not Found",
+          message: `No cryptographic attestation recorded for artifact '${hash}'`,
+        });
+      }
+
+      return reply.code(200).send({
+        hash: meta.hash,
+        isAttested: meta.isAttested,
+        attestationVerified: meta.attestationVerified,
+        signerKeyId: meta.attestationSignerKeyId,
+        builderId: meta.builderId,
+        ciRunner: meta.ciRunner,
+        statement: meta.attestationStatement,
+        envelope: meta.attestationEnvelope,
       });
     },
   );

@@ -19,6 +19,7 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 
 - **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
 - **Direct-to-Storage Presigned S3/R2 Engine**: High-throughput direct client-to-storage uploads and downloads via short-lived presigned S3 URLs and transparent HTTP 307 redirects, eliminating server egress bandwidth bottlenecks for gigabyte-scale artifacts.
+- **Cryptographic Attestation & SLSA Provenance Verification**: Ed25519 DSSE / in-toto build provenance signature verification preventing supply chain cache-poisoning attacks. Enforces strict corporate policy gates (approved CI runners, platforms, and architectures) and real-time SHA-256 integrity validation.
 - **Embedded Web Dashboard & Explorer**: Live, air-gapped web console (`/dashboard`) with real-time visual ROI metrics, artifact inspection & invalidation, token management, and cluster health.
 - **Turborepo & Poly Native Compatibility**: Drop-in compatible with standard Turborepo V8 artifact endpoints (`/v8/artifacts/:hash`) and native Poly build caches.
 - **Enterprise Multi-Tenancy & Workspaces**: Complete logical isolation by team/workspace slug with granular storage quotas and custom retention TTLs.
@@ -215,8 +216,10 @@ Response:
 | `GET` | `/dashboard` | Live Web Console & Artifact Explorer | Public (or Bearer Token) |
 | `GET` | `/v8/artifacts/:hash` | Download cached binary artifact (307 redirect to S3 or direct stream) | `read` |
 | `GET` | `/v8/artifacts/:hash/download-url` | Generate short-lived direct presigned download URL | `read` |
+| `GET` | `/v8/artifacts/:hash/attestation` | Retrieve verified cryptographic SLSA attestation statement | `read` |
 | `HEAD` | `/v8/artifacts/:hash` | Check artifact hit/miss status | `read` |
-| `PUT` | `/v8/artifacts/:hash` | Upload artifact binary stream | `write` |
+| `PUT` | `/v8/artifacts/:hash` | Upload artifact binary stream (validates checksum & attestation) | `write` |
+| `POST` | `/v8/artifacts/:hash/attestation` | Submit and cryptographically verify in-toto attestation envelope | `write` |
 | `POST` | `/v8/artifacts/:hash/upload-url` | Generate direct-to-storage presigned upload URL | `write` |
 | `POST` | `/v8/artifacts/:hash/complete` | Confirm and register direct presigned upload | `write` |
 | `DELETE` | `/v8/artifacts/:hash` | Invalidate artifact | `write` |
@@ -250,6 +253,12 @@ Response:
 | `PRESIGNED_URLS_ENABLED` | `true` (S3) | Enable direct presigned S3/R2 upload & download URLs |
 | `PRESIGNED_EXPIRY_SECONDS` | `900` | Presigned URL validity duration in seconds (15 min) |
 | `PRESIGNED_REDIRECT_ON_GET` | `true` | Transparent HTTP 307 redirect to S3 on GET /v8/artifacts/:hash |
+| `ATTESTATION_REQUIRED` | `false` | Strictly reject unsigned artifacts per corporate policy |
+| `ATTESTATION_TRUSTED_KEYS` | *(none)* | JSON or PEM map of trusted Ed25519 corporate public keys |
+| `ATTESTATION_ALLOWED_RUNNERS`| *(none)* | Approved CI runner list (e.g. `GitHub Actions`) |
+| `ATTESTATION_ALLOWED_ARCHS` | *(none)* | Approved CPU architectures (e.g. `x64,arm64`) |
+| `ATTESTATION_ALLOWED_PLATFORMS`| *(none)* | Approved OS platforms (e.g. `linux,darwin`) |
+| `CHECKSUM_VERIFICATION_ENABLED`| `true` | Real-time SHA-256 payload integrity validation |
 | `METADATA_DB_PATH` | `./data/metadata.sqlite` | SQLite database file location |
 | `AUTH_ENABLED` | `true` | Enable Bearer token authentication |
 | `DEFAULT_ADMIN_TOKEN` | *(auto)* | Master cluster administrator token |
@@ -261,7 +270,7 @@ Response:
 ## 🧪 Testing & Verification
 
 ```bash
-# Run unit & integration test suite (50 tests)
+# Run unit & integration test suite (65 tests)
 npm test
 
 # Run Biome formatting & linter verification

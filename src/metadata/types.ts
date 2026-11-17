@@ -1,3 +1,5 @@
+import type { DsseEnvelope, InTotoStatement } from "../attestation/types.js";
+
 export interface Workspace {
   id: string;
   slug: string;
@@ -25,9 +27,17 @@ export interface ArtifactRecord {
   hash: string;
   workspaceId: string;
   sizeBytes: number;
+  sha256?: string;
   tag?: string;
   durationMs?: number;
   hitCount: number;
+  isAttested?: boolean;
+  attestationVerified?: boolean;
+  attestationSignerKeyId?: string;
+  builderId?: string;
+  ciRunner?: string;
+  attestationEnvelope?: DsseEnvelope;
+  attestationStatement?: InTotoStatement;
   createdAt: string;
   lastAccessedAt: string;
   expiresAt: string;
@@ -81,10 +91,29 @@ export interface MetadataStore {
     hash: string;
     workspaceId: string;
     sizeBytes: number;
+    sha256?: string;
     tag?: string;
     durationMs?: number;
     ttlSeconds?: number;
+    isAttested?: boolean;
+    attestationVerified?: boolean;
+    attestationSignerKeyId?: string;
+    builderId?: string;
+    ciRunner?: string;
+    attestationEnvelope?: DsseEnvelope;
+    attestationStatement?: InTotoStatement;
   }): Promise<ArtifactRecord>;
+  attachAttestation(params: {
+    workspaceId: string;
+    hash: string;
+    isAttested: boolean;
+    attestationVerified: boolean;
+    attestationSignerKeyId?: string;
+    builderId?: string;
+    ciRunner?: string;
+    attestationEnvelope?: DsseEnvelope;
+    attestationStatement?: InTotoStatement;
+  }): Promise<ArtifactRecord | null>;
   getArtifact(workspaceId: string, hash: string): Promise<ArtifactRecord | null>;
   recordHit(workspaceId: string, hash: string): Promise<void>;
   deleteArtifact(workspaceId: string, hash: string): Promise<boolean>;

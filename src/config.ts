@@ -25,6 +25,42 @@ export interface PolyCloudConfig {
   presignedUrlsEnabled: boolean;
   presignedExpirySeconds: number;
   presignedRedirectOnGet: boolean;
+  attestationRequired: boolean;
+  attestationTrustedKeys: Record<string, string>;
+  attestationAllowedRunners: string[];
+  attestationAllowedArchitectures: string[];
+  attestationAllowedPlatforms: string[];
+  attestationAllowedBuilders: string[];
+  checksumVerificationEnabled: boolean;
+}
+
+function parseList(val?: string): string[] {
+  if (!val) return [];
+  const trimmed = val.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      return JSON.parse(trimmed) as string[];
+    } catch {
+      // Fallback to comma split
+    }
+  }
+  return trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function parseKeys(val?: string): Record<string, string> {
+  if (!val) return {};
+  const trimmed = val.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      return JSON.parse(trimmed) as Record<string, string>;
+    } catch {
+      // Fallback
+    }
+  }
+  return { default: trimmed };
 }
 
 export function loadConfig(overrides?: Partial<PolyCloudConfig>): PolyCloudConfig {
@@ -101,5 +137,26 @@ export function loadConfig(overrides?: Partial<PolyCloudConfig>): PolyCloudConfi
       Number.parseInt(env.PRESIGNED_EXPIRY_SECONDS || "900", 10), // 15 mins
     presignedRedirectOnGet:
       overrides?.presignedRedirectOnGet ?? env.PRESIGNED_REDIRECT_ON_GET !== "false",
+    attestationRequired:
+      overrides?.attestationRequired ??
+      (env.ATTESTATION_REQUIRED === "true" || env.POLY_ATTESTATION_REQUIRED === "true"),
+    attestationTrustedKeys:
+      overrides?.attestationTrustedKeys ??
+      parseKeys(env.ATTESTATION_TRUSTED_KEYS || env.POLY_TRUSTED_KEYS),
+    attestationAllowedRunners:
+      overrides?.attestationAllowedRunners ??
+      parseList(env.ATTESTATION_ALLOWED_RUNNERS || env.POLY_ALLOWED_RUNNERS),
+    attestationAllowedArchitectures:
+      overrides?.attestationAllowedArchitectures ??
+      parseList(env.ATTESTATION_ALLOWED_ARCHS || env.POLY_ALLOWED_ARCHS),
+    attestationAllowedPlatforms:
+      overrides?.attestationAllowedPlatforms ??
+      parseList(env.ATTESTATION_ALLOWED_PLATFORMS || env.POLY_ALLOWED_PLATFORMS),
+    attestationAllowedBuilders:
+      overrides?.attestationAllowedBuilders ??
+      parseList(env.ATTESTATION_ALLOWED_BUILDERS || env.POLY_ALLOWED_BUILDERS),
+    checksumVerificationEnabled:
+      overrides?.checksumVerificationEnabled ??
+      (env.CHECKSUM_VERIFICATION_ENABLED !== "false" && env.POLY_CHECKSUM_VERIFICATION !== "false"),
   };
 }

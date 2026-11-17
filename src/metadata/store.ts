@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { DsseEnvelope, InTotoStatement } from "../attestation/types.js";
 import type {
   ApiToken,
   ArtifactRecord,
@@ -137,9 +138,17 @@ export class MemoryMetadataStore implements MetadataStore {
     hash: string;
     workspaceId: string;
     sizeBytes: number;
+    sha256?: string;
     tag?: string;
     durationMs?: number;
     ttlSeconds?: number;
+    isAttested?: boolean;
+    attestationVerified?: boolean;
+    attestationSignerKeyId?: string;
+    builderId?: string;
+    ciRunner?: string;
+    attestationEnvelope?: DsseEnvelope;
+    attestationStatement?: InTotoStatement;
   }): Promise<ArtifactRecord> {
     const key = this.artifactKey(params.workspaceId, params.hash);
     const now = new Date();
@@ -151,15 +160,50 @@ export class MemoryMetadataStore implements MetadataStore {
       hash: params.hash,
       workspaceId: params.workspaceId,
       sizeBytes: params.sizeBytes,
+      sha256: params.sha256,
       tag: params.tag,
       durationMs: params.durationMs,
       hitCount: 0,
+      isAttested: params.isAttested,
+      attestationVerified: params.attestationVerified,
+      attestationSignerKeyId: params.attestationSignerKeyId,
+      builderId: params.builderId,
+      ciRunner: params.ciRunner,
+      attestationEnvelope: params.attestationEnvelope,
+      attestationStatement: params.attestationStatement,
       createdAt: now.toISOString(),
       lastAccessedAt: now.toISOString(),
       expiresAt,
     };
 
     this.artifacts.set(key, record);
+    return record;
+  }
+
+  async attachAttestation(params: {
+    workspaceId: string;
+    hash: string;
+    isAttested: boolean;
+    attestationVerified: boolean;
+    attestationSignerKeyId?: string;
+    builderId?: string;
+    ciRunner?: string;
+    attestationEnvelope?: DsseEnvelope;
+    attestationStatement?: InTotoStatement;
+  }): Promise<ArtifactRecord | null> {
+    const key = this.artifactKey(params.workspaceId, params.hash);
+    const record = this.artifacts.get(key);
+    if (!record) return null;
+
+    record.isAttested = params.isAttested;
+    record.attestationVerified = params.attestationVerified;
+    if (params.attestationSignerKeyId)
+      record.attestationSignerKeyId = params.attestationSignerKeyId;
+    if (params.builderId) record.builderId = params.builderId;
+    if (params.ciRunner) record.ciRunner = params.ciRunner;
+    if (params.attestationEnvelope) record.attestationEnvelope = params.attestationEnvelope;
+    if (params.attestationStatement) record.attestationStatement = params.attestationStatement;
+
     return record;
   }
 
@@ -341,9 +385,16 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
         hash TEXT NOT NULL,
         workspace_id TEXT NOT NULL,
         size_bytes INTEGER NOT NULL,
+        sha256 TEXT,
         tag TEXT,
         duration_ms INTEGER,
         hit_count INTEGER NOT NULL DEFAULT 0,
+        is_attested INTEGER,
+        attestation_verified INTEGER,
+        attestation_signer_key_id TEXT,
+        builder_id TEXT,
+        ci_runner TEXT,
+        attestation_json TEXT,
         created_at TEXT NOT NULL,
         last_accessed_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
@@ -359,6 +410,29 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
         timestamp TEXT NOT NULL
       );
     `);
+
+    // Backwards-compatibility migrations for existing tables
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN sha256 TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN is_attested INTEGER;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN attestation_verified INTEGER;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN attestation_signer_key_id TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN builder_id TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN ci_runner TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN attestation_json TEXT;");
+    } catch {}
   }
 
   private loadInitialData(db: {
