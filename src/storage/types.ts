@@ -17,8 +17,15 @@ export interface StoragePruneResult {
   freedBytes: number;
 }
 
+export interface PresignedUrlOptions {
+  expiresInSeconds?: number;
+  contentType?: string;
+  sizeBytes?: number;
+}
+
 export interface StorageBackend {
   readonly name: "local" | "s3" | "memory";
+  readonly supportsPresignedUrls?: boolean;
   init?(): Promise<void>;
   has(key: string): Promise<boolean>;
   get(key: string): Promise<Readable | null>;
@@ -28,4 +35,6 @@ export interface StorageBackend {
   stat(key: string): Promise<ArtifactStat>;
   listKeys(prefix?: string): Promise<string[]>;
   prune(beforeDate: Date): Promise<StoragePruneResult>;
+  getPresignedGetUrl?(key: string, options?: PresignedUrlOptions): Promise<string | null>;
+  getPresignedPutUrl?(key: string, options?: PresignedUrlOptions): Promise<string | null>;
 }

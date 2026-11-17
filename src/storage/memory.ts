@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import type {
   ArtifactStat,
+  PresignedUrlOptions,
   StorageBackend,
   StoragePruneResult,
   StoragePutResult,
@@ -15,7 +16,12 @@ interface MemoryEntry {
 
 export class MemoryStorage implements StorageBackend {
   readonly name = "memory" as const;
+  supportsPresignedUrls: boolean;
   private items = new Map<string, MemoryEntry>();
+
+  constructor(options?: { enablePresignedUrls?: boolean }) {
+    this.supportsPresignedUrls = options?.enablePresignedUrls ?? false;
+  }
 
   async has(key: string): Promise<boolean> {
     return this.items.has(key);
@@ -90,6 +96,16 @@ export class MemoryStorage implements StorageBackend {
     }
 
     return { deletedCount, freedBytes };
+  }
+
+  async getPresignedGetUrl(key: string, _options?: PresignedUrlOptions): Promise<string | null> {
+    if (!this.supportsPresignedUrls) return null;
+    return `https://s3.storage.example.com/artifacts/${encodeURIComponent(key)}?signed=true`;
+  }
+
+  async getPresignedPutUrl(key: string, _options?: PresignedUrlOptions): Promise<string | null> {
+    if (!this.supportsPresignedUrls) return null;
+    return `https://s3.storage.example.com/artifacts/${encodeURIComponent(key)}?signed=true&upload=true`;
   }
 
   clear(): void {

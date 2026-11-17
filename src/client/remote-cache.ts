@@ -7,6 +7,7 @@ export interface RemoteCacheClientOptions {
   token: string;
   teamSlug?: string;
   timeoutMs?: number;
+  preferPresignedUrls?: boolean;
 }
 
 export interface ClientCacheResult {
@@ -17,17 +18,33 @@ export interface ClientCacheResult {
   storageBackend: "remote";
 }
 
+export interface PresignedUploadResponse {
+  uploadUrl: string;
+  method: string;
+  headers: Record<string, string>;
+  expiresInSeconds: number;
+  expiresAt: string;
+}
+
+export interface PresignedDownloadResponse {
+  downloadUrl: string;
+  expiresInSeconds: number;
+  expiresAt: string;
+}
+
 export class RemoteCacheClient {
   private apiUrl: string;
   private token: string;
   private teamSlug: string;
   private timeoutMs: number;
+  private preferPresignedUrls: boolean;
 
   constructor(options: RemoteCacheClientOptions) {
     this.apiUrl = options.apiUrl.replace(/\/+$/, "");
     this.token = options.token;
     this.teamSlug = options.teamSlug || "default";
     this.timeoutMs = options.timeoutMs || 15000;
+    this.preferPresignedUrls = options.preferPresignedUrls ?? false;
   }
 
   private getHeaders(): Record<string, string> {
@@ -55,11 +72,47 @@ export class RemoteCacheClient {
     }
   }
 
+  async getPresignedDownloadUrl(hash: string): Promise<PresignedDownloadResponse | null> {
+    try {
+      const res = await fetch(this.getUrl(`/v8/artifacts/${hash}/download-url`), {
+        method: "GET",
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as PresignedDownloadResponse;
+    } catch {
+      return null;
+    }
+  }
+
+  async getPresignedUploadUrl(
+    hash: string,
+    options?: { sizeBytes?: number; contentType?: string; tag?: string; durationMs?: number },
+  ): Promise<PresignedUploadResponse | null> {
+    try {
+      const res = await fetch(this.getUrl(`/v8/artifacts/${hash}/upload-url`), {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(options || {}),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as PresignedUploadResponse;
+    } catch {
+      return null;
+    }
+  }
+
   async download(hash: string): Promise<Buffer | null> {
     try {
       const res = await fetch(this.getUrl(`/v8/artifacts/${hash}`), {
         method: "GET",
         headers: this.getHeaders(),
+        redirect: "follow", // Follow 307 Presigned S3/R2 redirects automatically!
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (res.status !== 200) return null;
@@ -73,8 +126,51 @@ export class RemoteCacheClient {
   async upload(
     hash: string,
     data: Buffer,
-    options?: { tag?: string; durationMs?: number },
+    options?: { tag?: string; durationMs?: number; preferPresigned?: boolean },
   ): Promise<boolean> {
+    const usePresigned = options?.preferPresigned ?? this.preferPresignedUrls;
+
+    // Attempt direct presigned upload if preferred
+    if (usePresigned) {
+      const presigned = await this.getPresignedUploadUrl(hash, {
+        sizeBytes: data.length,
+        tag: options?.tag,
+        durationMs: options?.durationMs,
+      });
+
+      if (presigned) {
+        try {
+          const directPut = await fetch(presigned.uploadUrl, {
+            method: presigned.method || "PUT",
+            headers: presigned.headers || { "Content-Type": "application/octet-stream" },
+            body: data,
+            signal: AbortSignal.timeout(this.timeoutMs),
+          });
+
+          if (directPut.ok) {
+            // Confirm upload to server
+            const confirmRes = await fetch(this.getUrl(`/v8/artifacts/${hash}/complete`), {
+              method: "POST",
+              headers: {
+                ...this.getHeaders(),
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                sizeBytes: data.length,
+                tag: options?.tag,
+                durationMs: options?.durationMs,
+              }),
+              signal: AbortSignal.timeout(this.timeoutMs),
+            });
+            return confirmRes.ok;
+          }
+        } catch {
+          // Fall through to regular direct upload on network failure
+        }
+      }
+    }
+
+    // Standard Direct Streaming to poly-cloud-api
     try {
       const headers: Record<string, string> = {
         ...this.getHeaders(),

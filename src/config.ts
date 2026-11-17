@@ -22,6 +22,9 @@ export interface PolyCloudConfig {
   computeCostPerHourUsd: number;
   signatureVerification: boolean;
   signatureSecret?: string;
+  presignedUrlsEnabled: boolean;
+  presignedExpirySeconds: number;
+  presignedRedirectOnGet: boolean;
 }
 
 export function loadConfig(overrides?: Partial<PolyCloudConfig>): PolyCloudConfig {
@@ -88,5 +91,15 @@ export function loadConfig(overrides?: Partial<PolyCloudConfig>): PolyCloudConfi
       (env.SIGNATURE_VERIFICATION === "true" || env.POLY_SIGNATURE_VERIFICATION === "true"),
     signatureSecret:
       overrides?.signatureSecret ?? env.SIGNATURE_SECRET ?? env.POLY_SIGNATURE_SECRET,
+    presignedUrlsEnabled:
+      overrides?.presignedUrlsEnabled ??
+      (env.PRESIGNED_URLS_ENABLED === "true" ||
+        (env.PRESIGNED_URLS_ENABLED !== "false" &&
+          (overrides?.storageBackend === "s3" || env.STORAGE_BACKEND === "s3"))),
+    presignedExpirySeconds:
+      overrides?.presignedExpirySeconds ??
+      Number.parseInt(env.PRESIGNED_EXPIRY_SECONDS || "900", 10), // 15 mins
+    presignedRedirectOnGet:
+      overrides?.presignedRedirectOnGet ?? env.PRESIGNED_REDIRECT_ON_GET !== "false",
   };
 }

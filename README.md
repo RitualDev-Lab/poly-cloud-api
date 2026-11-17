@@ -18,6 +18,7 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 ## ⚡ Highlights
 
 - **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
+- **Direct-to-Storage Presigned S3/R2 Engine**: High-throughput direct client-to-storage uploads and downloads via short-lived presigned S3 URLs and transparent HTTP 307 redirects, eliminating server egress bandwidth bottlenecks for gigabyte-scale artifacts.
 - **Embedded Web Dashboard & Explorer**: Live, air-gapped web console (`/dashboard`) with real-time visual ROI metrics, artifact inspection & invalidation, token management, and cluster health.
 - **Turborepo & Poly Native Compatibility**: Drop-in compatible with standard Turborepo V8 artifact endpoints (`/v8/artifacts/:hash`) and native Poly build caches.
 - **Enterprise Multi-Tenancy & Workspaces**: Complete logical isolation by team/workspace slug with granular storage quotas and custom retention TTLs.
@@ -55,7 +56,9 @@ flowchart TD
     Gateway --> Auth
     Auth --> Routes
     Routes <--> Meta
-    Routes <-->|"Atomic Stream (zstd / tar.gz)"| S1 & S2 & S3
+    Routes <-->|"Atomic Stream (Local)"| S2 & S3
+    Routes -.->|"307 Redirect / Presigned PUT"| S1
+    C1 & C2 & C3 ==>|"Direct Object I/O (S3 / R2 Multi-Gbps Bypass)"| S1
 ```
 
 ---
@@ -210,9 +213,12 @@ Response:
 | Method | Endpoint | Description | Auth Required |
 |:-------|:---------|:------------|:--------------|
 | `GET` | `/dashboard` | Live Web Console & Artifact Explorer | Public (or Bearer Token) |
-| `GET` | `/v8/artifacts/:hash` | Download cached binary artifact | `read` |
+| `GET` | `/v8/artifacts/:hash` | Download cached binary artifact (307 redirect to S3 or direct stream) | `read` |
+| `GET` | `/v8/artifacts/:hash/download-url` | Generate short-lived direct presigned download URL | `read` |
 | `HEAD` | `/v8/artifacts/:hash` | Check artifact hit/miss status | `read` |
 | `PUT` | `/v8/artifacts/:hash` | Upload artifact binary stream | `write` |
+| `POST` | `/v8/artifacts/:hash/upload-url` | Generate direct-to-storage presigned upload URL | `write` |
+| `POST` | `/v8/artifacts/:hash/complete` | Confirm and register direct presigned upload | `write` |
 | `DELETE` | `/v8/artifacts/:hash` | Invalidate artifact | `write` |
 | `POST` | `/v8/artifacts/events` | Record build task telemetry | `write` |
 | `GET` | `/api/v1/health` | Service & storage health probe | Public |
@@ -241,6 +247,9 @@ Response:
 | `S3_ENDPOINT` | *(none)* | Custom endpoint (e.g. Cloudflare R2 or MinIO) |
 | `S3_ACCESS_KEY_ID` | *(none)* | S3 access key |
 | `S3_SECRET_ACCESS_KEY` | *(none)* | S3 secret key |
+| `PRESIGNED_URLS_ENABLED` | `true` (S3) | Enable direct presigned S3/R2 upload & download URLs |
+| `PRESIGNED_EXPIRY_SECONDS` | `900` | Presigned URL validity duration in seconds (15 min) |
+| `PRESIGNED_REDIRECT_ON_GET` | `true` | Transparent HTTP 307 redirect to S3 on GET /v8/artifacts/:hash |
 | `METADATA_DB_PATH` | `./data/metadata.sqlite` | SQLite database file location |
 | `AUTH_ENABLED` | `true` | Enable Bearer token authentication |
 | `DEFAULT_ADMIN_TOKEN` | *(auto)* | Master cluster administrator token |
@@ -252,7 +261,7 @@ Response:
 ## 🧪 Testing & Verification
 
 ```bash
-# Run unit & integration test suite (36 tests)
+# Run unit & integration test suite (50 tests)
 npm test
 
 # Run Biome formatting & linter verification

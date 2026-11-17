@@ -8,8 +8,10 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type {
   ArtifactStat,
+  PresignedUrlOptions,
   StorageBackend,
   StoragePruneResult,
   StoragePutResult,
@@ -26,6 +28,7 @@ export interface S3StorageOptions {
 
 export class S3Storage implements StorageBackend {
   readonly name = "s3" as const;
+  readonly supportsPresignedUrls = true;
   private client: S3Client;
   private bucket: string;
 
@@ -100,7 +103,7 @@ export class S3Storage implements StorageBackend {
     return Buffer.concat(chunks);
   }
 
-  async put(key: string, data: Readable | Buffer, sizeBytes?: number): Promise<StoragePutResult> {
+  async put(key: string, data: Readable | Buffer, _sizeBytes?: number): Promise<StoragePutResult> {
     let bodyBuffer: Buffer;
     if (Buffer.isBuffer(data)) {
       bodyBuffer = data;
@@ -213,5 +216,27 @@ export class S3Storage implements StorageBackend {
     } while (continuationToken);
 
     return { deletedCount, freedBytes };
+  }
+
+  async getPresignedGetUrl(key: string, options?: PresignedUrlOptions): Promise<string | null> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    return await getSignedUrl(this.client, command, {
+      expiresIn: options?.expiresInSeconds || 900,
+    });
+  }
+
+  async getPresignedPutUrl(key: string, options?: PresignedUrlOptions): Promise<string | null> {
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: options?.contentType || "application/octet-stream",
+      ContentLength: options?.sizeBytes,
+    });
+    return await getSignedUrl(this.client, command, {
+      expiresIn: options?.expiresInSeconds || 900,
+    });
   }
 }
