@@ -18,6 +18,7 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 ## ⚡ Highlights
 
 - **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
+- **Embedded Web Dashboard & Explorer**: Live, air-gapped web console (`/dashboard`) with real-time visual ROI metrics, artifact inspection & invalidation, token management, and cluster health.
 - **Turborepo & Poly Native Compatibility**: Drop-in compatible with standard Turborepo V8 artifact endpoints (`/v8/artifacts/:hash`) and native Poly build caches.
 - **Enterprise Multi-Tenancy & Workspaces**: Complete logical isolation by team/workspace slug with granular storage quotas and custom retention TTLs.
 - **Granular Token Governance**: Role-Based Access Control (`read`, `write`, `admin`) with expiration dates, automatic revocation, and SHA-256 secret hashing.
@@ -208,6 +209,7 @@ Response:
 
 | Method | Endpoint | Description | Auth Required |
 |:-------|:---------|:------------|:--------------|
+| `GET` | `/dashboard` | Live Web Console & Artifact Explorer | Public (or Bearer Token) |
 | `GET` | `/v8/artifacts/:hash` | Download cached binary artifact | `read` |
 | `HEAD` | `/v8/artifacts/:hash` | Check artifact hit/miss status | `read` |
 | `PUT` | `/v8/artifacts/:hash` | Upload artifact binary stream | `write` |

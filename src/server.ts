@@ -4,6 +4,7 @@ import type { PolyCloudConfig } from "./config.js";
 import { createMetadataStore } from "./metadata/index.js";
 import type { MetadataStore } from "./metadata/types.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
+import { registerDashboardRoutes } from "./routes/dashboard.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerMetricsRoutes } from "./routes/metrics.js";
@@ -78,6 +79,7 @@ export async function createPolyCloudServer(
   await store.ensureWorkspace(config.defaultWorkspace);
 
   // Register all routes
+  await registerDashboardRoutes(app);
   await registerArtifactRoutes(app, { storage, store, config });
   await registerEventsRoutes(app, { store, config });
   await registerWorkspaceRoutes(app, { storage, store, config });

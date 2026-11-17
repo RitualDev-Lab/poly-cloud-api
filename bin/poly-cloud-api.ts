@@ -111,8 +111,9 @@ async function main(): Promise<void> {
     const server = await createPolyCloudServer(config);
     const address = await server.start();
     console.log(`✅ Server listening on ${address}`);
-    console.log(`📊 Health check endpoint: ${address}/api/v1/health`);
-    console.log(`📈 Metrics endpoint:      ${address}/api/v1/metrics`);
+    console.log(`🖥️  Web Dashboard:          ${address}/dashboard`);
+    console.log(`📊 Health check endpoint:   ${address}/api/v1/health`);
+    console.log(`📈 Metrics endpoint:        ${address}/api/v1/metrics`);
     console.log(`⚡ Turborepo cache endpoint: ${address}/v8/artifacts/:hash\n`);
 
     const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
