@@ -314,3 +314,12 @@ npm run build
 
 Licensed under the [Apache License, Version 2.0](LICENSE).  
 Copyright © 2026 [RitualDev-Lab](https://github.com/RitualDev-Lab).
+
+---
+
+## 🛡️ Community & Governance
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Accessibility Statement](ACCESSIBILITY.md)
+- [License](LICENSE)
