@@ -2,12 +2,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore } from "../metadata/types.js";
 import { createAuthHook } from "../middleware/auth.js";
+import { StorageOptimizerDaemon } from "../optimizer/daemon.js";
 import type { StorageBackend } from "../storage/types.js";
 
 export interface WorkspacesRouteOptions {
   storage: StorageBackend;
   store: MetadataStore;
   config: PolyCloudConfig;
+  optimizer?: StorageOptimizerDaemon;
 }
 
 export async function registerWorkspaceRoutes(
@@ -115,6 +117,31 @@ export async function registerWorkspaceRoutes(
         workspace: slug,
         deletedCount,
         freedBytes,
+      });
+    },
+  );
+
+  // POST /api/v1/workspaces/:slug/optimize - Run storage optimizer (TTL cleanup + LRU eviction + deduplication)
+  app.post<{ Params: { slug: string } }>(
+    "/api/v1/workspaces/:slug/optimize",
+    { preHandler: adminAuth },
+    async (request, reply) => {
+      const slug = request.params.slug;
+      const ws = await store.getWorkspaceBySlug(slug);
+      if (!ws) {
+        return reply.code(404).send({
+          error: "Not Found",
+          message: `Workspace '${slug}' not found`,
+        });
+      }
+
+      const activeOptimizer =
+        options.optimizer ?? new StorageOptimizerDaemon({ store, storage, config });
+      const report = await activeOptimizer.optimizeWorkspace(slug);
+
+      return reply.code(200).send({
+        status: "optimized",
+        report,
       });
     },
   );

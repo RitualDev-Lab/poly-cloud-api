@@ -18,6 +18,7 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 ## ⚡ Highlights
 
 - **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
+- **Intelligent LRU Auto-Eviction & Deduplication Engine**: Background Quota Monitor daemon and Least-Recently-Used (LRU) eviction engine that automatically purges stale unaccessed artifacts down to a target low-watermark threshold when workspace quotas are exceeded, while strictly preserving hot dependencies. Cross-branch SHA-256 Content Addressable Storage (CAS) deduplication prevents redundant layer storage and tracks savings in real-time.
 - **Direct-to-Storage Presigned S3/R2 Engine**: High-throughput direct client-to-storage uploads and downloads via short-lived presigned S3 URLs and transparent HTTP 307 redirects, eliminating server egress bandwidth bottlenecks for gigabyte-scale artifacts.
 - **Cryptographic Attestation & SLSA Provenance Verification**: Ed25519 DSSE / in-toto build provenance signature verification preventing supply chain cache-poisoning attacks. Enforces strict corporate policy gates (approved CI runners, platforms, and architectures) and real-time SHA-256 integrity validation.
 - **GitHub Actions OIDC Seamless Auth (Zero-Secret CI)**: Eliminate static credentials in CI pipelines. Runners automatically exchange GitHub's ephemeral OIDC JWT (`id-token: write`) for a scoped Poly cache token, or use the OIDC JWT directly as the Bearer token with automatic repository workspace provisioning and branch protection.
@@ -46,6 +47,7 @@ flowchart TD
         Auth["RBAC Token Auth & Rate Limiter"]
         Meta["Metadata Engine (SQLite / In-Memory)"]
         Routes["Artifact Router & Telemetry Tracker"]
+        Optimizer["Storage Optimizer & LRU Eviction Daemon"]
     end
 
     subgraph Storage["Storage Backends"]
@@ -233,6 +235,7 @@ Response:
 | `GET` | `/api/v1/workspaces/:slug/stats` | Workspace ROI & cache hit stats | `read` |
 | `GET` | `/api/v1/workspaces/:slug/artifacts` | List artifacts with pagination | `read` |
 | `POST` | `/api/v1/workspaces/:slug/prune` | Evict expired artifacts | `admin` |
+| `POST` | `/api/v1/workspaces/:slug/optimize` | Run storage optimizer (TTL cleanup + LRU eviction + deduplication) | `admin` |
 | `POST` | `/api/v1/tokens` | Issue a scoped API token | `admin` |
 | `GET` | `/api/v1/tokens` | List workspace tokens | `admin` |
 | `DELETE` | `/api/v1/tokens/:id` | Revoke an API token | `admin` |
@@ -268,6 +271,12 @@ Response:
 | `GITHUB_OIDC_WRITE_BRANCHES` | *(none)* | Protected branches granted `write` role (e.g. `main`) |
 | `GITHUB_OIDC_ALLOW_PR_WRITE` | `true` | Allow pull requests to write to cache |
 | `GITHUB_OIDC_TOKEN_TTL` | `3600` | Exchanged ephemeral token lifetime in seconds (1h) |
+| `AUTO_EVICTION_ENABLED` | `true` | Enable background LRU eviction and storage optimizer daemon |
+| `AUTO_EVICT_INTERVAL_SECONDS` | `300` | Optimizer daemon background pass interval in seconds (5 min) |
+| `AUTO_EVICT_ON_WRITE` | `true` | Trigger immediate inline quota evaluation & LRU eviction on artifact upload |
+| `QUOTA_HIGH_WATERMARK_RATIO` | `0.95` | Quota percentage triggering LRU eviction (e.g. 0.95 = 95%) |
+| `QUOTA_LOW_WATERMARK_RATIO` | `0.80` | Target quota percentage to evict down to (e.g. 0.80 = 80%) |
+| `DEDUPLICATION_ENABLED` | `true` | Enable SHA-256 CAS layer deduplication tracking |
 | `METADATA_DB_PATH` | `./data/metadata.sqlite` | SQLite database file location |
 | `AUTH_ENABLED` | `true` | Enable Bearer token authentication |
 | `DEFAULT_ADMIN_TOKEN` | *(auto)* | Master cluster administrator token |
@@ -279,7 +288,7 @@ Response:
 ## 🧪 Testing & Verification
 
 ```bash
-# Run unit & integration test suite (79 tests)
+# Run unit & integration test suite (86 tests)
 npm test
 
 # Run Biome formatting & linter verification

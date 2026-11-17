@@ -38,6 +38,8 @@ export interface ArtifactRecord {
   ciRunner?: string;
   attestationEnvelope?: DsseEnvelope;
   attestationStatement?: InTotoStatement;
+  isDeduplicated?: boolean;
+  originalHash?: string;
   createdAt: string;
   lastAccessedAt: string;
   expiresAt: string;
@@ -63,6 +65,8 @@ export interface WorkspaceStats {
   hitRatePercent: number;
   totalDurationSavedSeconds: number;
   estimatedSavingsUsd: number;
+  deduplicationSavingsBytes: number;
+  deduplicationRatio: number;
 }
 
 export interface MetadataStore {
@@ -95,6 +99,9 @@ export interface MetadataStore {
     tag?: string;
     durationMs?: number;
     ttlSeconds?: number;
+    expiresAt?: string;
+    createdAt?: string;
+    lastAccessedAt?: string;
     isAttested?: boolean;
     attestationVerified?: boolean;
     attestationSignerKeyId?: string;
@@ -102,6 +109,8 @@ export interface MetadataStore {
     ciRunner?: string;
     attestationEnvelope?: DsseEnvelope;
     attestationStatement?: InTotoStatement;
+    isDeduplicated?: boolean;
+    originalHash?: string;
   }): Promise<ArtifactRecord>;
   attachAttestation(params: {
     workspaceId: string;
@@ -123,6 +132,14 @@ export interface MetadataStore {
     offset?: number,
   ): Promise<{ artifacts: ArtifactRecord[]; total: number }>;
   getExpiredArtifacts(workspaceId?: string): Promise<ArtifactRecord[]>;
+  getArtifactsForEviction(workspaceId: string): Promise<ArtifactRecord[]>;
+  findArtifactBySha256(workspaceId: string, sha256: string): Promise<ArtifactRecord | null>;
+  getDeduplicationStats(workspaceId?: string): Promise<{
+    rawBytes: number;
+    storedBytes: number;
+    savedBytes: number;
+    ratio: number;
+  }>;
 
   // Events & Analytics
   recordEvent(event: Omit<TelemetryEvent, "id" | "timestamp">): Promise<void>;

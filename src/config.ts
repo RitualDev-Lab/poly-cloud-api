@@ -40,6 +40,12 @@ export interface PolyCloudConfig {
   githubOidcAllowPrWrite: boolean;
   githubOidcTokenTtlSeconds: number;
   githubOidcJwksUrl?: string;
+  autoEvictionEnabled: boolean;
+  autoEvictIntervalSeconds: number;
+  autoEvictOnWrite: boolean;
+  quotaHighWatermarkRatio: number;
+  quotaLowWatermarkRatio: number;
+  deduplicationEnabled: boolean;
 }
 
 function parseList(val?: string): string[] {
@@ -186,5 +192,26 @@ export function loadConfig(overrides?: Partial<PolyCloudConfig>): PolyCloudConfi
       overrides?.githubOidcTokenTtlSeconds ??
       Number.parseInt(env.GITHUB_OIDC_TOKEN_TTL || "3600", 10),
     githubOidcJwksUrl: overrides?.githubOidcJwksUrl ?? env.GITHUB_OIDC_JWKS_URL,
+    autoEvictionEnabled:
+      overrides?.autoEvictionEnabled ??
+      (env.AUTO_EVICTION_ENABLED !== "false" && env.POLY_AUTO_EVICTION !== "false"),
+    autoEvictIntervalSeconds:
+      overrides?.autoEvictIntervalSeconds ??
+      Number.parseInt(
+        env.AUTO_EVICTION_INTERVAL_SECONDS || env.AUTO_EVICT_INTERVAL_SECONDS || "300",
+        10,
+      ),
+    autoEvictOnWrite:
+      overrides?.autoEvictOnWrite ??
+      (env.AUTO_EVICT_ON_WRITE !== "false" && env.POLY_AUTO_EVICT_ON_WRITE !== "false"),
+    quotaHighWatermarkRatio:
+      overrides?.quotaHighWatermarkRatio ??
+      Number.parseFloat(env.QUOTA_HIGH_WATERMARK_RATIO || "0.95"),
+    quotaLowWatermarkRatio:
+      overrides?.quotaLowWatermarkRatio ??
+      Number.parseFloat(env.QUOTA_LOW_WATERMARK_RATIO || "0.80"),
+    deduplicationEnabled:
+      overrides?.deduplicationEnabled ??
+      (env.DEDUPLICATION_ENABLED !== "false" && env.POLY_DEDUPLICATION !== "false"),
   };
 }

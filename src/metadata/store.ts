@@ -142,6 +142,9 @@ export class MemoryMetadataStore implements MetadataStore {
     tag?: string;
     durationMs?: number;
     ttlSeconds?: number;
+    expiresAt?: string;
+    createdAt?: string;
+    lastAccessedAt?: string;
     isAttested?: boolean;
     attestationVerified?: boolean;
     attestationSignerKeyId?: string;
@@ -149,12 +152,14 @@ export class MemoryMetadataStore implements MetadataStore {
     ciRunner?: string;
     attestationEnvelope?: DsseEnvelope;
     attestationStatement?: InTotoStatement;
+    isDeduplicated?: boolean;
+    originalHash?: string;
   }): Promise<ArtifactRecord> {
     const key = this.artifactKey(params.workspaceId, params.hash);
     const now = new Date();
     const ws = this.workspaces.get(params.workspaceId);
     const ttl = params.ttlSeconds ?? ws?.defaultTtlSeconds ?? 604800;
-    const expiresAt = new Date(now.getTime() + ttl * 1000).toISOString();
+    const expiresAt = params.expiresAt ?? new Date(now.getTime() + ttl * 1000).toISOString();
 
     const record: ArtifactRecord = {
       hash: params.hash,
@@ -171,8 +176,10 @@ export class MemoryMetadataStore implements MetadataStore {
       ciRunner: params.ciRunner,
       attestationEnvelope: params.attestationEnvelope,
       attestationStatement: params.attestationStatement,
-      createdAt: now.toISOString(),
-      lastAccessedAt: now.toISOString(),
+      isDeduplicated: params.isDeduplicated,
+      originalHash: params.originalHash,
+      createdAt: params.createdAt ?? now.toISOString(),
+      lastAccessedAt: params.lastAccessedAt ?? now.toISOString(),
       expiresAt,
     };
 
@@ -308,6 +315,20 @@ export class MemoryMetadataStore implements MetadataStore {
     const hoursSaved = totalDurationSavedMs / 3600000;
     const estimatedSavingsUsd = Number((hoursSaved * costPerHourUsd).toFixed(2));
 
+    // Calculate deduplication savings across identical content digests
+    const uniqueSha = new Set<string>();
+    let uniqueStoredBytes = 0;
+    for (const art of wsArtifacts) {
+      const sha = art.sha256 || art.hash;
+      if (!uniqueSha.has(sha)) {
+        uniqueSha.add(sha);
+        uniqueStoredBytes += art.sizeBytes;
+      }
+    }
+    const deduplicationSavingsBytes = Math.max(0, totalSizeBytes - uniqueStoredBytes);
+    const deduplicationRatio =
+      uniqueStoredBytes > 0 ? Number((totalSizeBytes / uniqueStoredBytes).toFixed(2)) : 1.0;
+
     return {
       workspaceSlug: ws.slug,
       totalArtifacts: wsArtifacts.length,
@@ -319,7 +340,57 @@ export class MemoryMetadataStore implements MetadataStore {
       hitRatePercent,
       totalDurationSavedSeconds,
       estimatedSavingsUsd,
+      deduplicationSavingsBytes,
+      deduplicationRatio,
     };
+  }
+
+  async getArtifactsForEviction(workspaceId: string): Promise<ArtifactRecord[]> {
+    const list = Array.from(this.artifacts.values()).filter((a) => a.workspaceId === workspaceId);
+    // Sort LRU: oldest lastAccessedAt first, with createdAt as tie-breaker
+    return list.sort((a, b) => {
+      const timeDiff = new Date(a.lastAccessedAt).getTime() - new Date(b.lastAccessedAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  }
+
+  async findArtifactBySha256(workspaceId: string, sha256: string): Promise<ArtifactRecord | null> {
+    const targetSha = sha256.toLowerCase();
+    for (const art of this.artifacts.values()) {
+      if (art.workspaceId === workspaceId && art.sha256?.toLowerCase() === targetSha) {
+        return art;
+      }
+    }
+    return null;
+  }
+
+  async getDeduplicationStats(workspaceId?: string): Promise<{
+    rawBytes: number;
+    storedBytes: number;
+    savedBytes: number;
+    ratio: number;
+  }> {
+    const arts = Array.from(this.artifacts.values()).filter(
+      (a) => !workspaceId || a.workspaceId === workspaceId,
+    );
+    let rawBytes = 0;
+    const uniqueSha = new Set<string>();
+    let storedBytes = 0;
+
+    for (const a of arts) {
+      rawBytes += a.sizeBytes;
+      const sha = a.sha256 || a.hash;
+      if (!uniqueSha.has(sha)) {
+        uniqueSha.add(sha);
+        storedBytes += a.sizeBytes;
+      }
+    }
+
+    const savedBytes = Math.max(0, rawBytes - storedBytes);
+    const ratio = storedBytes > 0 ? Number((rawBytes / storedBytes).toFixed(2)) : 1.0;
+
+    return { rawBytes, storedBytes, savedBytes, ratio };
   }
 }
 
@@ -432,6 +503,12 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
     } catch {}
     try {
       db.exec("ALTER TABLE artifacts ADD COLUMN attestation_json TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN is_deduplicated INTEGER;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE artifacts ADD COLUMN original_hash TEXT;");
     } catch {}
   }
 

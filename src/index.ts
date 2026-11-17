@@ -4,4 +4,5 @@ export * from "./storage/index.js";
 export * from "./metadata/index.js";
 export * from "./attestation/index.js";
 export * from "./oidc/index.js";
+export * from "./optimizer/index.js";
 export * from "./client/index.js";

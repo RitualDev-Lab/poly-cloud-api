@@ -531,6 +531,15 @@ export function getDashboardHtml(): string {
             <div class="progress-bar-fill" id="barQuotaUsed" style="width: 0%"></div>
           </div>
         </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Deduplication Savings</span>
+            <span class="metric-icon">🧬</span>
+          </div>
+          <div class="metric-value" style="color:var(--primary)" id="valDeduplicationSaved">0 MB</div>
+          <div class="metric-sub" id="subDeduplicationRatio">1.0x Storage Efficiency</div>
+        </div>
       </div>
 
       <div class="dashboard-split">
@@ -568,6 +577,7 @@ export function getDashboardHtml(): string {
         <div class="table-toolbar">
           <input type="text" class="search-input" id="searchArtifacts" placeholder="🔍 Search artifact hash or tag...">
           <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-secondary" id="btnOptimizeStorage">⚡ Optimize & Evict</button>
             <button class="btn btn-secondary" id="btnPruneExpired">🧹 Prune Expired</button>
           </div>
         </div>
@@ -660,6 +670,10 @@ export function getDashboardHtml(): string {
           <div style="background:var(--bg); padding:1rem; border-radius:8px; border:1px solid var(--card-border);">
             <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">GitHub Actions OIDC</div>
             <div style="font-weight:700; font-size:1.1rem; color:var(--success);">Active (Zero-Secret CI)</div>
+          </div>
+          <div style="background:var(--bg); padding:1rem; border-radius:8px; border:1px solid var(--card-border);">
+            <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">LRU Auto-Eviction Daemon</div>
+            <div style="font-weight:700; font-size:1.1rem; color:var(--success);">Active (Auto-Optimizing)</div>
           </div>
         </div>
       </div>
@@ -875,6 +889,10 @@ export function getDashboardHtml(): string {
           document.getElementById("subStorageQuota").textContent = \`\${stats.totalArtifacts} artifacts (\${stats.quotaUsedPercent}% of quota)\`;
           document.getElementById("barQuotaUsed").style.width = Math.min(stats.quotaUsedPercent, 100) + "%";
 
+          const dedupMb = ((stats.deduplicationSavingsBytes || 0) / 1024 / 1024).toFixed(1);
+          document.getElementById("valDeduplicationSaved").textContent = dedupMb + " MB";
+          document.getElementById("subDeduplicationRatio").textContent = (stats.deduplicationRatio || 1.0) + "x Storage Efficiency";
+
           renderRoiChart(stats);
         }
       } catch (e) {
@@ -999,6 +1017,27 @@ export function getDashboardHtml(): string {
         showToast("Error deleting artifact");
       }
     }
+
+    // Optimize & Evict LRU Artifacts
+    document.getElementById("btnOptimizeStorage").addEventListener("click", async () => {
+      try {
+        const res = await fetch(\`/api/v1/workspaces/\${encodeURIComponent(currentWorkspace)}/optimize\`, {
+          method: "POST",
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          const body = await res.json();
+          const r = body.report;
+          showToast(\`Optimized: \${r.totalFreedBytes > 0 ? (r.totalFreedBytes / 1024 / 1024).toFixed(1) + " MB freed" : "Workspace within quota"} | \${r.deduplicationRatio}x deduplication\`);
+          loadArtifacts();
+          loadStats();
+        } else {
+          showToast("Failed to optimize workspace storage");
+        }
+      } catch (e) {
+        showToast("Error optimizing storage");
+      }
+    });
 
     // Prune Expired Artifacts
     document.getElementById("btnPruneExpired").addEventListener("click", async () => {

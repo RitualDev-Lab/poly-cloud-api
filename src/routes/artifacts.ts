@@ -6,6 +6,7 @@ import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore } from "../metadata/types.js";
 import { createAuthHook } from "../middleware/auth.js";
 import type { GitHubOidcVerifier } from "../oidc/verifier.js";
+import type { StorageOptimizerDaemon } from "../optimizer/daemon.js";
 import type { StorageBackend } from "../storage/types.js";
 
 export interface ArtifactsRouteOptions {
@@ -13,13 +14,14 @@ export interface ArtifactsRouteOptions {
   store: MetadataStore;
   config: PolyCloudConfig;
   oidcVerifier?: GitHubOidcVerifier;
+  optimizer?: StorageOptimizerDaemon;
 }
 
 export async function registerArtifactRoutes(
   app: FastifyInstance,
   options: ArtifactsRouteOptions,
 ): Promise<void> {
-  const { storage, store, config, oidcVerifier } = options;
+  const { storage, store, config, oidcVerifier, optimizer } = options;
 
   const readAuth = createAuthHook({ store, config, oidcVerifier }, "read");
   const writeAuth = createAuthHook({ store, config, oidcVerifier }, "write");
@@ -278,6 +280,17 @@ export async function registerArtifactRoutes(
       } catch {}
     }
 
+    // Deduplication check
+    let isDeduplicated = false;
+    let originalHash: string | undefined;
+    if (config.deduplicationEnabled && payloadSha256) {
+      const existingArt = await store.findArtifactBySha256(workspace.id, payloadSha256);
+      if (existingArt && existingArt.hash !== hash) {
+        isDeduplicated = true;
+        originalHash = existingArt.hash;
+      }
+    }
+
     const record = await store.recordArtifact({
       hash,
       workspaceId: workspace.id,
@@ -292,7 +305,14 @@ export async function registerArtifactRoutes(
       ciRunner: evalResult.ciRunner,
       attestationStatement: evalResult.statement,
       attestationEnvelope: parsedEnv,
+      isDeduplicated,
+      originalHash,
     });
+
+    // Inline on-write quota eviction monitor
+    if (optimizer) {
+      await optimizer.checkOnWrite(workspace.id);
+    }
 
     await store.recordEvent({
       workspaceId: workspace.id,
@@ -407,6 +427,17 @@ export async function registerArtifactRoutes(
         } catch {}
       }
 
+      // Deduplication check
+      let isDeduplicated = false;
+      let originalHash: string | undefined;
+      if (config.deduplicationEnabled && putResult.sha256) {
+        const existingArt = await store.findArtifactBySha256(workspace.id, putResult.sha256);
+        if (existingArt && existingArt.hash !== hash) {
+          isDeduplicated = true;
+          originalHash = existingArt.hash;
+        }
+      }
+
       // Record metadata
       const record = await store.recordArtifact({
         hash,
@@ -422,7 +453,14 @@ export async function registerArtifactRoutes(
         ciRunner: evalResult.ciRunner,
         attestationStatement: evalResult.statement,
         attestationEnvelope: parsedEnv,
+        isDeduplicated,
+        originalHash,
       });
+
+      // Inline on-write quota eviction monitor
+      if (optimizer) {
+        await optimizer.checkOnWrite(workspace.id);
+      }
 
       // Record upload event
       await store.recordEvent({
