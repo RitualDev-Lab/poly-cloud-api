@@ -18,6 +18,7 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 ## ⚡ Highlights
 
 - **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
+- **Production Kubernetes Helm Chart**: Turnkey enterprise Helm chart (`charts/poly-cloud-api`) with Horizontal Pod Autoscaler (HPA v2), Ingress with TLS, Prometheus Operator ServiceMonitor, and ConfigMaps/Secrets for AWS S3, Cloudflare R2, and MinIO.
 - **Intelligent LRU Auto-Eviction & Deduplication Engine**: Background Quota Monitor daemon and Least-Recently-Used (LRU) eviction engine that automatically purges stale unaccessed artifacts down to a target low-watermark threshold when workspace quotas are exceeded, while strictly preserving hot dependencies. Cross-branch SHA-256 Content Addressable Storage (CAS) deduplication prevents redundant layer storage and tracks savings in real-time.
 - **Direct-to-Storage Presigned S3/R2 Engine**: High-throughput direct client-to-storage uploads and downloads via short-lived presigned S3 URLs and transparent HTTP 307 redirects, eliminating server egress bandwidth bottlenecks for gigabyte-scale artifacts.
 - **Cryptographic Attestation & SLSA Provenance Verification**: Ed25519 DSSE / in-toto build provenance signature verification preventing supply chain cache-poisoning attacks. Enforces strict corporate policy gates (approved CI runners, platforms, and architectures) and real-time SHA-256 integrity validation.
@@ -102,6 +103,15 @@ docker-compose up -d
 The stack will boot:
 - **Poly Cloud API**: `http://localhost:8080`
 - **MinIO Console**: `http://localhost:9001` (User: `minioadmin`, Pass: `minioadmin`)
+
+### 4. Deploy to Kubernetes with Helm
+
+```bash
+helm install poly-cache ./charts/poly-cloud-api \
+  --namespace poly-cache \
+  --create-namespace \
+  --values ./charts/poly-cloud-api/values.yaml
+```
 
 ---
 
@@ -288,7 +298,7 @@ Response:
 ## 🧪 Testing & Verification
 
 ```bash
-# Run unit & integration test suite (86 tests)
+# Run unit & integration test suite (94 tests)
 npm test
 
 # Run Biome formatting & linter verification
