@@ -657,6 +657,10 @@ export function getDashboardHtml(): string {
             <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">Checksum Integrity</div>
             <div style="font-weight:700; font-size:1.1rem; color:var(--primary);">SHA-256 Validated</div>
           </div>
+          <div style="background:var(--bg); padding:1rem; border-radius:8px; border:1px solid var(--card-border);">
+            <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:0.25rem;">GitHub Actions OIDC</div>
+            <div style="font-weight:700; font-size:1.1rem; color:var(--success);">Active (Zero-Secret CI)</div>
+          </div>
         </div>
       </div>
     </div>

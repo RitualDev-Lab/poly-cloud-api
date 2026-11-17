@@ -32,6 +32,14 @@ export interface PolyCloudConfig {
   attestationAllowedPlatforms: string[];
   attestationAllowedBuilders: string[];
   checksumVerificationEnabled: boolean;
+  githubOidcEnabled: boolean;
+  githubOidcAudience?: string;
+  githubOidcAllowedOwners: string[];
+  githubOidcAllowedRepositories: string[];
+  githubOidcRequireWriteBranch: string[];
+  githubOidcAllowPrWrite: boolean;
+  githubOidcTokenTtlSeconds: number;
+  githubOidcJwksUrl?: string;
 }
 
 function parseList(val?: string): string[] {
@@ -158,5 +166,25 @@ export function loadConfig(overrides?: Partial<PolyCloudConfig>): PolyCloudConfi
     checksumVerificationEnabled:
       overrides?.checksumVerificationEnabled ??
       (env.CHECKSUM_VERIFICATION_ENABLED !== "false" && env.POLY_CHECKSUM_VERIFICATION !== "false"),
+    githubOidcEnabled:
+      overrides?.githubOidcEnabled ??
+      (env.GITHUB_OIDC_ENABLED !== "false" && env.POLY_OIDC_ENABLED !== "false"),
+    githubOidcAudience:
+      overrides?.githubOidcAudience ?? env.GITHUB_OIDC_AUDIENCE ?? env.POLY_OIDC_AUDIENCE,
+    githubOidcAllowedOwners:
+      overrides?.githubOidcAllowedOwners ??
+      parseList(env.GITHUB_OIDC_ALLOWED_OWNERS || env.POLY_OIDC_ALLOWED_OWNERS),
+    githubOidcAllowedRepositories:
+      overrides?.githubOidcAllowedRepositories ??
+      parseList(env.GITHUB_OIDC_ALLOWED_REPOS || env.POLY_OIDC_ALLOWED_REPOS),
+    githubOidcRequireWriteBranch:
+      overrides?.githubOidcRequireWriteBranch ??
+      parseList(env.GITHUB_OIDC_WRITE_BRANCHES || env.POLY_OIDC_WRITE_BRANCHES),
+    githubOidcAllowPrWrite:
+      overrides?.githubOidcAllowPrWrite ?? env.GITHUB_OIDC_ALLOW_PR_WRITE !== "false",
+    githubOidcTokenTtlSeconds:
+      overrides?.githubOidcTokenTtlSeconds ??
+      Number.parseInt(env.GITHUB_OIDC_TOKEN_TTL || "3600", 10),
+    githubOidcJwksUrl: overrides?.githubOidcJwksUrl ?? env.GITHUB_OIDC_JWKS_URL,
   };
 }

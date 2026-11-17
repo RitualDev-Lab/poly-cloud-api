@@ -1,6 +1,8 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore, TokenRole, Workspace } from "../metadata/types.js";
+import type { GitHubOidcPolicy } from "../oidc/types.js";
+import { GitHubOidcVerifier } from "../oidc/verifier.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -13,6 +15,7 @@ declare module "fastify" {
 export interface AuthContext {
   store: MetadataStore;
   config: PolyCloudConfig;
+  oidcVerifier?: GitHubOidcVerifier;
 }
 
 export function createAuthHook(context: AuthContext, requiredRole: TokenRole = "read") {
@@ -55,6 +58,39 @@ export function createAuthHook(context: AuthContext, requiredRole: TokenRole = "
       request.tokenRole = "admin";
       request.isAdmin = true;
       return;
+    }
+
+    // Direct GitHub Actions OIDC Bearer Token verification
+    if (rawToken.startsWith("eyJ") && context.config.githubOidcEnabled) {
+      const oidcVerifier = context.oidcVerifier ?? new GitHubOidcVerifier();
+      const oidcPolicy: GitHubOidcPolicy = {
+        enabled: context.config.githubOidcEnabled,
+        jwksUrl: context.config.githubOidcJwksUrl,
+        expectedAudience: context.config.githubOidcAudience,
+        allowedOwners: context.config.githubOidcAllowedOwners,
+        allowedRepositories: context.config.githubOidcAllowedRepositories,
+        requireWriteBranch: context.config.githubOidcRequireWriteBranch,
+        allowPrWrite: context.config.githubOidcAllowPrWrite,
+      };
+
+      const verification = await oidcVerifier.verifyToken(rawToken, oidcPolicy);
+      if (verification.valid && verification.claims) {
+        if (roleWeights[verification.role] < roleWeights[requiredRole]) {
+          return reply.code(403).send({
+            error: "Forbidden",
+            message: `GitHub OIDC role '${verification.role}' insufficient. Required role: '${requiredRole}'`,
+          });
+        }
+
+        const ws = await context.store.ensureWorkspace(
+          verification.workspaceSlug,
+          verification.claims.repository,
+        );
+        request.workspace = ws;
+        request.tokenRole = verification.role;
+        request.isAdmin = verification.role === "admin";
+        return;
+      }
     }
 
     // Verify token from database

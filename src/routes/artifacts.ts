@@ -5,22 +5,24 @@ import { AttestationVerifier } from "../attestation/verifier.js";
 import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore } from "../metadata/types.js";
 import { createAuthHook } from "../middleware/auth.js";
+import type { GitHubOidcVerifier } from "../oidc/verifier.js";
 import type { StorageBackend } from "../storage/types.js";
 
 export interface ArtifactsRouteOptions {
   storage: StorageBackend;
   store: MetadataStore;
   config: PolyCloudConfig;
+  oidcVerifier?: GitHubOidcVerifier;
 }
 
 export async function registerArtifactRoutes(
   app: FastifyInstance,
   options: ArtifactsRouteOptions,
 ): Promise<void> {
-  const { storage, store, config } = options;
+  const { storage, store, config, oidcVerifier } = options;
 
-  const readAuth = createAuthHook({ store, config }, "read");
-  const writeAuth = createAuthHook({ store, config }, "write");
+  const readAuth = createAuthHook({ store, config, oidcVerifier }, "read");
+  const writeAuth = createAuthHook({ store, config, oidcVerifier }, "write");
 
   const verifier = new AttestationVerifier();
 

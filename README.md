@@ -20,6 +20,7 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 - **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
 - **Direct-to-Storage Presigned S3/R2 Engine**: High-throughput direct client-to-storage uploads and downloads via short-lived presigned S3 URLs and transparent HTTP 307 redirects, eliminating server egress bandwidth bottlenecks for gigabyte-scale artifacts.
 - **Cryptographic Attestation & SLSA Provenance Verification**: Ed25519 DSSE / in-toto build provenance signature verification preventing supply chain cache-poisoning attacks. Enforces strict corporate policy gates (approved CI runners, platforms, and architectures) and real-time SHA-256 integrity validation.
+- **GitHub Actions OIDC Seamless Auth (Zero-Secret CI)**: Eliminate static credentials in CI pipelines. Runners automatically exchange GitHub's ephemeral OIDC JWT (`id-token: write`) for a scoped Poly cache token, or use the OIDC JWT directly as the Bearer token with automatic repository workspace provisioning and branch protection.
 - **Embedded Web Dashboard & Explorer**: Live, air-gapped web console (`/dashboard`) with real-time visual ROI metrics, artifact inspection & invalidation, token management, and cluster health.
 - **Turborepo & Poly Native Compatibility**: Drop-in compatible with standard Turborepo V8 artifact endpoints (`/v8/artifacts/:hash`) and native Poly build caches.
 - **Enterprise Multi-Tenancy & Workspaces**: Complete logical isolation by team/workspace slug with granular storage quotas and custom retention TTLs.
@@ -224,6 +225,7 @@ Response:
 | `POST` | `/v8/artifacts/:hash/complete` | Confirm and register direct presigned upload | `write` |
 | `DELETE` | `/v8/artifacts/:hash` | Invalidate artifact | `write` |
 | `POST` | `/v8/artifacts/events` | Record build task telemetry | `write` |
+| `POST` | `/api/v1/auth/github-oidc` | Exchange GitHub Actions OIDC JWT for ephemeral scoped token | Public |
 | `GET` | `/api/v1/health` | Service & storage health probe | Public |
 | `GET` | `/api/v1/metrics` | Prometheus metrics exporter | Public |
 | `GET` | `/api/v1/workspaces` | List all workspaces | `admin` |
@@ -259,6 +261,13 @@ Response:
 | `ATTESTATION_ALLOWED_ARCHS` | *(none)* | Approved CPU architectures (e.g. `x64,arm64`) |
 | `ATTESTATION_ALLOWED_PLATFORMS`| *(none)* | Approved OS platforms (e.g. `linux,darwin`) |
 | `CHECKSUM_VERIFICATION_ENABLED`| `true` | Real-time SHA-256 payload integrity validation |
+| `GITHUB_OIDC_ENABLED` | `true` | Enable zero-secret GitHub Actions OIDC authentication |
+| `GITHUB_OIDC_AUDIENCE` | *(none)* | Expected audience claim in GitHub OIDC JWT |
+| `GITHUB_OIDC_ALLOWED_OWNERS` | *(none)* | Approved GitHub orgs/users (e.g. `RitualDev-Lab`) |
+| `GITHUB_OIDC_ALLOWED_REPOS` | *(none)* | Approved repo patterns (e.g. `RitualDev-Lab/*`) |
+| `GITHUB_OIDC_WRITE_BRANCHES` | *(none)* | Protected branches granted `write` role (e.g. `main`) |
+| `GITHUB_OIDC_ALLOW_PR_WRITE` | `true` | Allow pull requests to write to cache |
+| `GITHUB_OIDC_TOKEN_TTL` | `3600` | Exchanged ephemeral token lifetime in seconds (1h) |
 | `METADATA_DB_PATH` | `./data/metadata.sqlite` | SQLite database file location |
 | `AUTH_ENABLED` | `true` | Enable Bearer token authentication |
 | `DEFAULT_ADMIN_TOKEN` | *(auto)* | Master cluster administrator token |
@@ -270,7 +279,7 @@ Response:
 ## 🧪 Testing & Verification
 
 ```bash
-# Run unit & integration test suite (65 tests)
+# Run unit & integration test suite (79 tests)
 npm test
 
 # Run Biome formatting & linter verification

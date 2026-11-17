@@ -3,11 +3,13 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { PolyCloudConfig } from "./config.js";
 import { createMetadataStore } from "./metadata/index.js";
 import type { MetadataStore } from "./metadata/types.js";
+import type { GitHubOidcVerifier } from "./oidc/verifier.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerDashboardRoutes } from "./routes/dashboard.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerMetricsRoutes } from "./routes/metrics.js";
+import { registerOidcRoutes } from "./routes/oidc.js";
 import { registerTokenRoutes } from "./routes/tokens.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { createStorageBackend } from "./storage/index.js";
@@ -27,6 +29,7 @@ export async function createPolyCloudServer(
   overrides?: {
     storage?: StorageBackend;
     store?: MetadataStore;
+    oidcVerifier?: GitHubOidcVerifier;
   },
 ): Promise<PolyCloudServer> {
   const startTime = Date.now();
@@ -80,10 +83,16 @@ export async function createPolyCloudServer(
 
   // Register all routes
   await registerDashboardRoutes(app);
-  await registerArtifactRoutes(app, { storage, store, config });
+  await registerArtifactRoutes(app, {
+    storage,
+    store,
+    config,
+    oidcVerifier: overrides?.oidcVerifier,
+  });
   await registerEventsRoutes(app, { store, config });
   await registerWorkspaceRoutes(app, { storage, store, config });
   await registerTokenRoutes(app, { store, config });
+  await registerOidcRoutes(app, { store, config, verifier: overrides?.oidcVerifier });
   await registerHealthRoutes(app, { storage, config, startTime });
   await registerMetricsRoutes(app, { store });
 

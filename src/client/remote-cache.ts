@@ -6,6 +6,7 @@ import type {
   DsseEnvelope,
   InTotoStatement,
 } from "../attestation/types.js";
+import type { OidcExchangeResponse } from "../oidc/types.js";
 
 export interface RemoteCacheClientOptions {
   apiUrl: string;
@@ -243,6 +244,55 @@ export class RemoteCacheClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Exchanges an ephemeral GitHub Actions OIDC JWT for a scoped Poly cache token.
+   */
+  async exchangeGitHubOidcToken(oidcToken: string): Promise<OidcExchangeResponse | null> {
+    try {
+      const res = await fetch(`${this.apiUrl}/api/v1/auth/github-oidc`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${oidcToken}`,
+        },
+        body: JSON.stringify({ token: oidcToken }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+
+      if (!res.ok) return null;
+      return (await res.json()) as OidcExchangeResponse;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Factory: Exchanges a GitHub Actions OIDC token and returns an authenticated RemoteCacheClient.
+   */
+  static async fromGitHubOidc(options: {
+    apiUrl: string;
+    oidcToken: string;
+    timeoutMs?: number;
+  }): Promise<RemoteCacheClient> {
+    const tempClient = new RemoteCacheClient({
+      apiUrl: options.apiUrl,
+      token: options.oidcToken,
+      timeoutMs: options.timeoutMs,
+    });
+
+    const exchange = await tempClient.exchangeGitHubOidcToken(options.oidcToken);
+    if (!exchange) {
+      throw new Error("Failed to exchange GitHub Actions OIDC token with poly-cloud-api");
+    }
+
+    return new RemoteCacheClient({
+      apiUrl: options.apiUrl,
+      token: exchange.token,
+      teamSlug: exchange.workspaceSlug,
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   async delete(hash: string): Promise<boolean> {
