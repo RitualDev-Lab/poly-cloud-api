@@ -117,5 +117,32 @@ test("Enterprise API Suite", async (t) => {
     assert.equal(body.workspace, "enterprise-core");
   });
 
+  await t.test("POST /api/v1/workspaces/:slug/purge invalidates branch cache", async () => {
+    // Populate an artifact with branch tag
+    await storage.put("ws_id_enterprise/branch-hash-1", Buffer.alloc(150));
+    const ws = await store.getWorkspaceBySlug("enterprise-core");
+    await store.recordArtifact({
+      hash: "branch-hash-1",
+      workspaceId: ws!.id,
+      sizeBytes: 150,
+      tag: "feature/login-flow",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/workspaces/enterprise-core/purge",
+      headers: adminAuth,
+      payload: { branch: "feature/login-flow" },
+    });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.status, "purged");
+    assert.equal(body.workspace, "enterprise-core");
+    assert.equal(body.branch, "feature/login-flow");
+    assert.equal(body.deletedCount, 1);
+    assert.equal(body.freedBytes, 150);
+  });
+
   await server.stop();
 });

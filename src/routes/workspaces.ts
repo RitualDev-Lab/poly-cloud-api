@@ -19,6 +19,7 @@ export async function registerWorkspaceRoutes(
   const { storage, store, config } = options;
 
   const adminAuth = createAuthHook({ store, config }, "admin");
+  const writeAuth = createAuthHook({ store, config }, "write");
   const readAuth = createAuthHook({ store, config }, "read");
 
   // GET /api/v1/workspaces - List workspaces
@@ -120,6 +121,61 @@ export async function registerWorkspaceRoutes(
       });
     },
   );
+
+  // POST /api/v1/workspaces/:slug/purge - Invalidate remote cache for branch or workspace
+  app.post<{
+    Params: { slug: string };
+    Body: { branch?: string; tag?: string };
+  }>("/api/v1/workspaces/:slug/purge", { preHandler: writeAuth }, async (request, reply) => {
+    const slug = request.params.slug;
+    const ws = await store.getWorkspaceBySlug(slug);
+    if (!ws) {
+      return reply.code(404).send({
+        error: "Not Found",
+        message: `Workspace '${slug}' not found`,
+      });
+    }
+
+    const branchOrTag = request.body?.branch || request.body?.tag;
+    const all = await store.listArtifacts(ws.id, 10000, 0);
+    const toDelete = branchOrTag
+      ? all.artifacts.filter(
+          (a) =>
+            a.tag === branchOrTag ||
+            a.tag?.toLowerCase() === branchOrTag.toLowerCase() ||
+            Boolean(a.tag?.includes(branchOrTag)),
+        )
+      : all.artifacts;
+
+    let freedBytes = 0;
+    let deletedCount = 0;
+    const deletedHashes: string[] = [];
+
+    for (const item of toDelete) {
+      const storageKey = `${ws.id}/${item.hash}`;
+      await storage.delete(storageKey);
+      await store.deleteArtifact(ws.id, item.hash);
+      freedBytes += item.sizeBytes;
+      deletedCount++;
+      deletedHashes.push(item.hash);
+
+      await store.recordEvent({
+        workspaceId: ws.id,
+        hash: item.hash,
+        eventType: "delete",
+        durationSavedMs: 0,
+      });
+    }
+
+    return reply.code(200).send({
+      status: "purged",
+      workspace: slug,
+      branch: branchOrTag || "all",
+      deletedCount,
+      freedBytes,
+      deletedHashes,
+    });
+  });
 
   // POST /api/v1/workspaces/:slug/optimize - Run storage optimizer (TTL cleanup + LRU eviction + deduplication)
   app.post<{ Params: { slug: string } }>(

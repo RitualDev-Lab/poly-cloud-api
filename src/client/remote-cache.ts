@@ -325,6 +325,84 @@ export class RemoteCacheClient {
       });
     } catch {}
   }
+
+  /**
+   * Retrieves cluster health, latency probe, and workspace ROI statistics.
+   */
+  async getStatus(): Promise<{
+    healthy: boolean;
+    latencyMs: number;
+    apiUrl: string;
+    workspace: string;
+    health?: Record<string, unknown>;
+    stats?: Record<string, unknown>;
+  } | null> {
+    const start = performance.now();
+    try {
+      const healthRes = await fetch(`${this.apiUrl}/api/v1/health`, {
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      const latencyMs = Math.round(performance.now() - start);
+      const healthData = healthRes.ok ? ((await healthRes.json()) as Record<string, unknown>) : {};
+
+      const statsRes = await fetch(
+        this.getUrl(`/api/v1/workspaces/${encodeURIComponent(this.teamSlug)}/stats`),
+        {
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        },
+      );
+      const statsJson = statsRes.ok
+        ? ((await statsRes.json()) as { stats?: Record<string, unknown> })
+        : null;
+      const statsData = statsJson?.stats;
+
+      return {
+        healthy: healthRes.ok,
+        latencyMs,
+        apiUrl: this.apiUrl,
+        workspace: this.teamSlug,
+        health: healthData,
+        stats: statsData,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Invalidate remote cache artifacts for a specific branch or the entire workspace.
+   */
+  async purge(options?: { branch?: string; tag?: string }): Promise<{
+    status: string;
+    deletedCount: number;
+    freedBytes: number;
+    deletedHashes: string[];
+  } | null> {
+    try {
+      const res = await fetch(
+        `${this.apiUrl}/api/v1/workspaces/${encodeURIComponent(this.teamSlug)}/purge`,
+        {
+          method: "POST",
+          headers: {
+            ...this.getHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(options || {}),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        },
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as {
+        status: string;
+        deletedCount: number;
+        freedBytes: number;
+        deletedHashes: string[];
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**
@@ -337,6 +415,10 @@ export class PolyRemoteCacheAdapter {
 
   constructor(options: RemoteCacheClientOptions) {
     this.client = new RemoteCacheClient(options);
+  }
+
+  getClient(): RemoteCacheClient {
+    return this.client;
   }
 
   async hasKey(key: string): Promise<boolean> {
@@ -387,7 +469,11 @@ export class PolyRemoteCacheAdapter {
     };
   }
 
-  async clean(): Promise<{ removedKeys: number; freedBytes: number }> {
-    return { removedKeys: 0, freedBytes: 0 };
+  async clean(options?: { branch?: string }): Promise<{ removedKeys: number; freedBytes: number }> {
+    const res = await this.client.purge(options);
+    return {
+      removedKeys: res?.deletedCount ?? 0,
+      freedBytes: res?.freedBytes ?? 0,
+    };
   }
 }
