@@ -292,13 +292,47 @@ Response:
 | `DEFAULT_ADMIN_TOKEN` | *(auto)* | Master cluster administrator token |
 | `MAX_ARTIFACT_SIZE_BYTES`| `2147483648` (2GB) | Maximum single artifact size |
 | `COMPUTE_COST_PER_HOUR_USD`| `0.08` | Runner cost per hour for ROI calculation |
+| `DODO_WEBHOOK_SECRET` | *(none)* | Webhook secret for automated subscription fulfillment |
+
+---
+
+## 💎 Remote Cache Storage Tiers & Commercial Billing
+
+`poly-cloud-api` provides a turnkey remote caching service with self-serve subscription billing powered by **Dodo Payments**:
+
+| Tier | Price | Cache Quota | Retention | Max Artifact | Ideal For |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Developer Free** | **$0** / mo | **1 GB** | 7 Days | 100 MB | Individual open-source developers |
+| **Pro Team** | **$29** / mo | **50 GB** | 30 Days | 500 MB | High-velocity engineering teams & CI/CD |
+| **Enterprise Cloud** | **$199** / mo | **500 GB** | 90 Days | 2 GB | Large monorepos with multi-runner matrix pipelines |
+
+### 🚀 Automatic Paywall & Quota Enforcement
+When a workspace on the Free tier exhausts its storage quota, `PUT /v8/artifacts/:hash` returns `HTTP 402 Payment Required` along with an `X-Poly-Upgrade-Url` header:
+
+```json
+{
+  "error": "Payment Required",
+  "code": "QUOTA_EXCEEDED",
+  "message": "Storage quota of 1.00 GB exceeded for workspace 'acme-corp' on free tier. Upgrade to Pro (50 GB) to continue caching.",
+  "tier": "free",
+  "currentUsageBytes": 1094000000,
+  "quotaBytes": 1073741824,
+  "upgradeUrl": "https://checkout.dodopayments.com/buy/pdt_0NpjONNytUpW7gzjoDlYW?quantity=1&metadata.workspace=acme-corp&metadata.tier=pro"
+}
+```
+
+### 💳 Billing & Webhook API Endpoints
+- `GET /api/v1/billing/tiers`: Returns all tier specifications, limits, and pricing.
+- `POST /api/v1/billing/checkout`: Generates a Dodo Payments checkout session for workspace upgrades (`{ workspaceSlug, tier }`).
+- `POST /api/v1/billing/webhooks/dodo`: Listens for `payment.succeeded`, `subscription.active`, and `subscription.cancelled` events with HMAC-SHA256 signature verification to update workspace tier and quota in real time.
+- `GET /api/v1/workspaces/:slug/billing`: Inspects current workspace tier, quota, usage percentage, and subscription renewal status.
 
 ---
 
 ## 🧪 Testing & Verification
 
 ```bash
-# Run unit & integration test suite (94 tests)
+# Run unit & integration test suite (101 tests)
 npm test
 
 # Run Biome formatting & linter verification

@@ -1,10 +1,16 @@
 import type { DsseEnvelope, InTotoStatement } from "../attestation/types.js";
 
+export type WorkspaceTier = "free" | "pro" | "enterprise";
+
 export interface Workspace {
   id: string;
   slug: string;
   name: string;
   quotaBytes: number;
+  tier?: WorkspaceTier;
+  subscriptionId?: string;
+  subscriptionStatus?: string;
+  subscriptionExpiresAt?: string;
   defaultTtlSeconds: number;
   createdAt: string;
 }
@@ -76,7 +82,11 @@ export interface MetadataStore {
   // Workspaces
   getWorkspaceBySlug(slug: string): Promise<Workspace | null>;
   getWorkspaceById(id: string): Promise<Workspace | null>;
-  ensureWorkspace(slug: string, name?: string, quotaBytes?: number): Promise<Workspace>;
+  ensureWorkspace(slug: string, name?: string, quotaBytes?: number, tier?: WorkspaceTier): Promise<Workspace>;
+  updateWorkspace(
+    id: string,
+    updates: Partial<Pick<Workspace, "name" | "quotaBytes" | "tier" | "subscriptionId" | "subscriptionStatus" | "subscriptionExpiresAt" | "defaultTtlSeconds">>
+  ): Promise<Workspace | null>;
   listWorkspaces(): Promise<Workspace[]>;
 
   // Tokens

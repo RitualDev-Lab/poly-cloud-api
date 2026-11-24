@@ -10,6 +10,7 @@ import type {
   TokenRole,
   Workspace,
   WorkspaceStats,
+  WorkspaceTier,
 } from "./types.js";
 
 function hashToken(rawToken: string): string {
@@ -45,6 +46,7 @@ export class MemoryMetadataStore implements MetadataStore {
     slug: string,
     name?: string,
     quotaBytes = 107374182400,
+    tier: WorkspaceTier = "free",
   ): Promise<Workspace> {
     const existing = await this.getWorkspaceBySlug(slug);
     if (existing) return existing;
@@ -55,12 +57,27 @@ export class MemoryMetadataStore implements MetadataStore {
       slug,
       name: name || slug,
       quotaBytes, // Default 100GB
+      tier,
       defaultTtlSeconds: 604800, // 7 days
       createdAt: new Date().toISOString(),
     };
     this.workspaces.set(id, ws);
     this.workspacesBySlug.set(slug, id);
     return ws;
+  }
+
+  async updateWorkspace(
+    id: string,
+    updates: Partial<Pick<Workspace, "name" | "quotaBytes" | "tier" | "subscriptionId" | "subscriptionStatus" | "subscriptionExpiresAt" | "defaultTtlSeconds">>
+  ): Promise<Workspace | null> {
+    const ws = this.workspaces.get(id);
+    if (!ws) return null;
+    const updated: Workspace = { ...ws, ...updates };
+    this.workspaces.set(id, updated);
+    if (updated.slug) {
+      this.workspacesBySlug.set(updated.slug, id);
+    }
+    return updated;
   }
 
   async listWorkspaces(): Promise<Workspace[]> {
@@ -487,6 +504,18 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
       db.exec("ALTER TABLE artifacts ADD COLUMN sha256 TEXT;");
     } catch {}
     try {
+      db.exec("ALTER TABLE workspaces ADD COLUMN tier TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE workspaces ADD COLUMN subscription_id TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE workspaces ADD COLUMN subscription_status TEXT;");
+    } catch {}
+    try {
+      db.exec("ALTER TABLE workspaces ADD COLUMN subscription_expires_at TEXT;");
+    } catch {}
+    try {
       db.exec("ALTER TABLE artifacts ADD COLUMN is_attested INTEGER;");
     } catch {}
     try {
@@ -529,6 +558,10 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
         slug: r.slug,
         name: r.name,
         quotaBytes: r.quota_bytes,
+        tier: (r as any).tier || "free",
+        subscriptionId: (r as any).subscription_id,
+        subscriptionStatus: (r as any).subscription_status,
+        subscriptionExpiresAt: (r as any).subscription_expires_at,
         defaultTtlSeconds: r.default_ttl_seconds,
         createdAt: r.created_at,
       };
@@ -562,6 +595,38 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
       this.tokens.set(r.id, token);
       this.tokensByHash.set(r.token_hash, r.id);
     }
+  }
+
+  override async updateWorkspace(
+    id: string,
+    updates: Partial<Pick<Workspace, "name" | "quotaBytes" | "tier" | "subscriptionId" | "subscriptionStatus" | "subscriptionExpiresAt" | "defaultTtlSeconds">>
+  ): Promise<Workspace | null> {
+    const updated = await super.updateWorkspace(id, updates);
+    if (!updated || !this.db) return updated;
+    try {
+      const db = this.db as any;
+      db.prepare(`
+        UPDATE workspaces SET
+          name = COALESCE(?, name),
+          quota_bytes = COALESCE(?, quota_bytes),
+          tier = COALESCE(?, tier),
+          subscription_id = COALESCE(?, subscription_id),
+          subscription_status = COALESCE(?, subscription_status),
+          subscription_expires_at = COALESCE(?, subscription_expires_at),
+          default_ttl_seconds = COALESCE(?, default_ttl_seconds)
+        WHERE id = ?
+      `).run(
+        updates.name ?? null,
+        updates.quotaBytes ?? null,
+        updates.tier ?? null,
+        updates.subscriptionId ?? null,
+        updates.subscriptionStatus ?? null,
+        updates.subscriptionExpiresAt ?? null,
+        updates.defaultTtlSeconds ?? null,
+        id
+      );
+    } catch {}
+    return updated;
   }
 
   override async close(): Promise<void> {
