@@ -68,7 +68,18 @@ export class MemoryMetadataStore implements MetadataStore {
 
   async updateWorkspace(
     id: string,
-    updates: Partial<Pick<Workspace, "name" | "quotaBytes" | "tier" | "subscriptionId" | "subscriptionStatus" | "subscriptionExpiresAt" | "defaultTtlSeconds">>
+    updates: Partial<
+      Pick<
+        Workspace,
+        | "name"
+        | "quotaBytes"
+        | "tier"
+        | "subscriptionId"
+        | "subscriptionStatus"
+        | "subscriptionExpiresAt"
+        | "defaultTtlSeconds"
+      >
+    >,
   ): Promise<Workspace | null> {
     const ws = this.workspaces.get(id);
     if (!ws) return null;
@@ -549,6 +560,10 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
       slug: string;
       name: string;
       quota_bytes: number;
+      tier?: WorkspaceTier;
+      subscription_id?: string;
+      subscription_status?: string;
+      subscription_expires_at?: string;
       default_ttl_seconds: number;
       created_at: string;
     }>;
@@ -558,10 +573,10 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
         slug: r.slug,
         name: r.name,
         quotaBytes: r.quota_bytes,
-        tier: (r as any).tier || "free",
-        subscriptionId: (r as any).subscription_id,
-        subscriptionStatus: (r as any).subscription_status,
-        subscriptionExpiresAt: (r as any).subscription_expires_at,
+        tier: r.tier || "free",
+        subscriptionId: r.subscription_id,
+        subscriptionStatus: r.subscription_status,
+        subscriptionExpiresAt: r.subscription_expires_at,
         defaultTtlSeconds: r.default_ttl_seconds,
         createdAt: r.created_at,
       };
@@ -599,12 +614,25 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
 
   override async updateWorkspace(
     id: string,
-    updates: Partial<Pick<Workspace, "name" | "quotaBytes" | "tier" | "subscriptionId" | "subscriptionStatus" | "subscriptionExpiresAt" | "defaultTtlSeconds">>
+    updates: Partial<
+      Pick<
+        Workspace,
+        | "name"
+        | "quotaBytes"
+        | "tier"
+        | "subscriptionId"
+        | "subscriptionStatus"
+        | "subscriptionExpiresAt"
+        | "defaultTtlSeconds"
+      >
+    >,
   ): Promise<Workspace | null> {
     const updated = await super.updateWorkspace(id, updates);
     if (!updated || !this.db) return updated;
     try {
-      const db = this.db as any;
+      const db = this.db as {
+        prepare: (sql: string) => { run: (...args: unknown[]) => void };
+      };
       db.prepare(`
         UPDATE workspaces SET
           name = COALESCE(?, name),
@@ -623,7 +651,7 @@ export class SqliteMetadataStore extends MemoryMetadataStore {
         updates.subscriptionStatus ?? null,
         updates.subscriptionExpiresAt ?? null,
         updates.defaultTtlSeconds ?? null,
-        id
+        id,
       );
     } catch {}
     return updated;

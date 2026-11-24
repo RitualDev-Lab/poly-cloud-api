@@ -65,87 +65,93 @@ test("Poly Remote Cloud Cache Tiering & Billing Suite", async (t) => {
     assert.ok(body.checkoutUrl.includes("email=lead%40startup.io"));
   });
 
-  await t.test("PUT /v8/artifacts/:hash returns 402 Payment Required when quota is exceeded", async () => {
-    // Artifact size is 600 bytes, which exceeds the 500-byte quota
-    const artifactPayload = Buffer.alloc(600, "x");
-    const res = await app.inject({
-      method: "PUT",
-      url: "/v8/artifacts/oversized-hash?team=startup-team",
-      headers: {
-        authorization: `Bearer ${writeToken}`,
-        "content-type": "application/octet-stream",
-        "content-length": "600",
-      },
-      payload: artifactPayload,
-    });
-
-    assert.equal(res.statusCode, 402);
-    assert.ok(res.headers["x-poly-upgrade-url"]);
-    const body = JSON.parse(res.body);
-    assert.equal(body.error, "Payment Required");
-    assert.equal(body.code, "QUOTA_EXCEEDED");
-    assert.equal(body.tier, "free");
-    assert.ok(body.upgradeUrl.includes("checkout.dodopayments.com"));
-  });
-
-  await t.test("POST /api/v1/billing/webhooks/dodo enforces signature and upgrades workspace to Pro", async () => {
-    process.env.DODO_WEBHOOK_SECRET = webhookSecret;
-
-    const payload = {
-      event_id: "evt_sub_active_101",
-      type: "subscription.active",
-      data: {
-        subscription_id: "sub_dodo_live_999",
-        product_id: "pdt_0NpjONNytUpW7gzjoDlYW",
-        metadata: {
-          workspace: "startup-team",
-          tier: "pro",
+  await t.test(
+    "PUT /v8/artifacts/:hash returns 402 Payment Required when quota is exceeded",
+    async () => {
+      // Artifact size is 600 bytes, which exceeds the 500-byte quota
+      const artifactPayload = Buffer.alloc(600, "x");
+      const res = await app.inject({
+        method: "PUT",
+        url: "/v8/artifacts/oversized-hash?team=startup-team",
+        headers: {
+          authorization: `Bearer ${writeToken}`,
+          "content-type": "application/octet-stream",
+          "content-length": "600",
         },
-      },
-    };
+        payload: artifactPayload,
+      });
 
-    const rawBody = JSON.stringify(payload);
-    const sig = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+      assert.equal(res.statusCode, 402);
+      assert.ok(res.headers["x-poly-upgrade-url"]);
+      const body = JSON.parse(res.body);
+      assert.equal(body.error, "Payment Required");
+      assert.equal(body.code, "QUOTA_EXCEEDED");
+      assert.equal(body.tier, "free");
+      assert.ok(body.upgradeUrl.includes("checkout.dodopayments.com"));
+    },
+  );
 
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/v1/billing/webhooks/dodo",
-      headers: {
-        "webhook-signature": `sha256=${sig}`,
-        "content-type": "application/json",
-      },
-      payload,
-    });
+  await t.test(
+    "POST /api/v1/billing/webhooks/dodo enforces signature and upgrades workspace to Pro",
+    async () => {
+      process.env.DODO_WEBHOOK_SECRET = webhookSecret;
 
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.body);
-    assert.equal(body.success, true);
-    assert.equal(body.tier, "pro");
-    assert.equal(body.quotaBytes, 50 * 1024 * 1024 * 1024);
+      const payload = {
+        event_id: "evt_sub_active_101",
+        type: "subscription.active",
+        data: {
+          subscription_id: "sub_dodo_live_999",
+          product_id: "pdt_0NpjONNytUpW7gzjoDlYW",
+          metadata: {
+            workspace: "startup-team",
+            tier: "pro",
+          },
+        },
+      };
 
-    // Verify workspace in store is now Pro
-    const ws = await store.getWorkspaceBySlug("startup-team");
-    assert.equal(ws?.tier, "pro");
-    assert.equal(ws?.quotaBytes, 50 * 1024 * 1024 * 1024);
-    assert.equal(ws?.subscriptionStatus, "active");
+      const rawBody = JSON.stringify(payload);
+      const sig = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
 
-    // Upload the 600-byte artifact again: now it must succeed on the 50 GB Pro tier!
-    const artifactPayload = Buffer.alloc(600, "x");
-    const uploadRes = await app.inject({
-      method: "PUT",
-      url: "/v8/artifacts/oversized-hash?team=startup-team",
-      headers: {
-        authorization: `Bearer ${writeToken}`,
-        "content-type": "application/octet-stream",
-        "content-length": "600",
-      },
-      payload: artifactPayload,
-    });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/billing/webhooks/dodo",
+        headers: {
+          "webhook-signature": `sha256=${sig}`,
+          "content-type": "application/json",
+        },
+        payload,
+      });
 
-    assert.equal(uploadRes.statusCode, 200);
-    const uploadBody = JSON.parse(uploadRes.body);
-    assert.equal(uploadBody.status, "stored");
-  });
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.success, true);
+      assert.equal(body.tier, "pro");
+      assert.equal(body.quotaBytes, 50 * 1024 * 1024 * 1024);
+
+      // Verify workspace in store is now Pro
+      const ws = await store.getWorkspaceBySlug("startup-team");
+      assert.equal(ws?.tier, "pro");
+      assert.equal(ws?.quotaBytes, 50 * 1024 * 1024 * 1024);
+      assert.equal(ws?.subscriptionStatus, "active");
+
+      // Upload the 600-byte artifact again: now it must succeed on the 50 GB Pro tier!
+      const artifactPayload = Buffer.alloc(600, "x");
+      const uploadRes = await app.inject({
+        method: "PUT",
+        url: "/v8/artifacts/oversized-hash?team=startup-team",
+        headers: {
+          authorization: `Bearer ${writeToken}`,
+          "content-type": "application/octet-stream",
+          "content-length": "600",
+        },
+        payload: artifactPayload,
+      });
+
+      assert.equal(uploadRes.statusCode, 200);
+      const uploadBody = JSON.parse(uploadRes.body);
+      assert.equal(uploadBody.status, "stored");
+    },
+  );
 
   await t.test("GET /api/v1/workspaces/:slug/billing reports active Pro status", async () => {
     const res = await app.inject({
@@ -161,38 +167,41 @@ test("Poly Remote Cloud Cache Tiering & Billing Suite", async (t) => {
     assert.ok(body.usedBytes >= 600);
   });
 
-  await t.test("POST /api/v1/billing/webhooks/dodo downgrades workspace on subscription.cancelled", async () => {
-    const payload = {
-      event_id: "evt_sub_cancel_102",
-      type: "subscription.cancelled",
-      data: {
-        subscription_id: "sub_dodo_live_999",
-        metadata: {
-          workspace: "startup-team",
+  await t.test(
+    "POST /api/v1/billing/webhooks/dodo downgrades workspace on subscription.cancelled",
+    async () => {
+      const payload = {
+        event_id: "evt_sub_cancel_102",
+        type: "subscription.cancelled",
+        data: {
+          subscription_id: "sub_dodo_live_999",
+          metadata: {
+            workspace: "startup-team",
+          },
         },
-      },
-    };
+      };
 
-    const rawBody = JSON.stringify(payload);
-    const sig = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+      const rawBody = JSON.stringify(payload);
+      const sig = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
 
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/v1/billing/webhooks/dodo",
-      headers: {
-        "webhook-signature": `sha256=${sig}`,
-        "content-type": "application/json",
-      },
-      payload,
-    });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/billing/webhooks/dodo",
+        headers: {
+          "webhook-signature": `sha256=${sig}`,
+          "content-type": "application/json",
+        },
+        payload,
+      });
 
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.body);
-    assert.equal(body.tier, "free");
-    assert.equal(body.quotaBytes, 1024 * 1024 * 1024);
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.tier, "free");
+      assert.equal(body.quotaBytes, 1024 * 1024 * 1024);
 
-    const ws = await store.getWorkspaceBySlug("startup-team");
-    assert.equal(ws?.tier, "free");
-    assert.equal(ws?.subscriptionStatus, "cancelled");
-  });
+      const ws = await store.getWorkspaceBySlug("startup-team");
+      assert.equal(ws?.tier, "free");
+      assert.equal(ws?.subscriptionStatus, "cancelled");
+    },
+  );
 });
