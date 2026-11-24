@@ -1,8 +1,8 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import * as crypto from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { TIER_CONFIGS } from "../billing/types.js";
 import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore, WorkspaceTier } from "../metadata/types.js";
-import { TIER_CONFIGS } from "../billing/types.js";
 
 export interface BillingRouteOptions {
   store: MetadataStore;
@@ -111,7 +111,8 @@ export async function registerBillingRoutes(
         subscriptionId: ws.subscriptionId,
         subscriptionStatus: ws.subscriptionStatus || "none",
         subscriptionExpiresAt: ws.subscriptionExpiresAt,
-        upgradeAvailable: tier === "free" ? ["pro", "enterprise"] : tier === "pro" ? ["enterprise"] : [],
+        upgradeAvailable:
+          tier === "free" ? ["pro", "enterprise"] : tier === "pro" ? ["enterprise"] : [],
       });
     },
   );
@@ -124,7 +125,7 @@ export async function registerBillingRoutes(
     const sigHeader =
       (request.headers["webhook-signature"] as string) ||
       (request.headers["x-dodo-signature"] as string) ||
-      (request.headers["signature"] as string);
+      (request.headers.signature as string);
 
     if (!webhookSecret) {
       return reply.code(500).send({
@@ -166,14 +167,34 @@ export async function registerBillingRoutes(
           message: "Invalid Dodo Payments signature",
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       return reply.code(401).send({
         error: "Unauthorized",
-        message: `Signature verification failed: ${err.message}`,
+        message: `Signature verification failed: ${msg}`,
       });
     }
 
-    const payload = (typeof request.body === "object" ? request.body : JSON.parse(rawBody)) as any;
+    interface DodoWebhookPayload {
+      id?: string;
+      event_id?: string;
+      type?: string;
+      event_type?: string;
+      data?: {
+        payment_id?: string;
+        subscription_id?: string;
+        product_id?: string;
+        next_billing_date?: string;
+        metadata?: Record<string, string>;
+        customer?: {
+          metadata?: Record<string, string>;
+        };
+      };
+    }
+
+    const payload = (
+      typeof request.body === "object" ? request.body : JSON.parse(rawBody)
+    ) as DodoWebhookPayload;
     const eventType = payload.type || payload.event_type;
     const data = payload.data || {};
 

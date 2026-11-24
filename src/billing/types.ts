@@ -26,8 +26,8 @@ export const TIER_CONFIGS: Record<WorkspaceTier, TierConfig> = {
       "1 GB remote build cache storage",
       "Turborepo & Poly CLI protocol support",
       "7-day cache retention",
-      "Community GitHub support"
-    ]
+      "Community GitHub support",
+    ],
   },
   pro: {
     tier: "pro",
@@ -44,8 +44,8 @@ export const TIER_CONFIGS: Record<WorkspaceTier, TierConfig> = {
       "30-day cache retention with deduplication",
       "GitHub Actions OIDC zero-secret authentication",
       "Sub-15ms cache hits via Cloudflare R2 / S3",
-      "Priority developer support"
-    ]
+      "Priority developer support",
+    ],
   },
   enterprise: {
     tier: "enterprise",
@@ -62,7 +62,7 @@ export const TIER_CONFIGS: Record<WorkspaceTier, TierConfig> = {
       "90-day retention with LRU watermark auto-eviction",
       "Cryptographic SLSA Provenance & Ed25519 in-toto verification",
       "Role-Based Team Tokens & SSO Integration",
-      "99.99% uptime SLA"
-    ]
-  }
+      "99.99% uptime SLA",
+    ],
+  },
 };
