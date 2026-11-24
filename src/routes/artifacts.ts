@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CorporateAttestationPolicy, DsseEnvelope } from "../attestation/types.js";
 import { AttestationVerifier } from "../attestation/verifier.js";
+import { TIER_CONFIGS } from "../billing/types.js";
 import type { PolyCloudConfig } from "../config.js";
 import type { MetadataStore } from "../metadata/types.js";
 import { createAuthHook } from "../middleware/auth.js";
@@ -192,6 +193,28 @@ export async function registerArtifactRoutes(
         error: "Payload Too Large",
         message: `Artifact size ${sizeBytes} exceeds maximum of ${config.maxArtifactSizeBytes} bytes`,
       });
+    }
+
+    // Quota and tier enforcement check
+    if (workspace.quotaBytes > 0) {
+      const stats = await store.getWorkspaceStats(workspace.slug);
+      const incoming = sizeBytes || 0;
+      if (stats.totalSizeBytes + incoming > workspace.quotaBytes) {
+        const tier = workspace.tier || "free";
+        const proConfig = TIER_CONFIGS.pro;
+        const upgradeUrl = `${proConfig.checkoutUrl}?quantity=1&metadata.workspace=${encodeURIComponent(
+          workspace.slug,
+        )}&metadata.tier=pro`;
+
+        reply.header("X-Poly-Upgrade-Url", upgradeUrl);
+        return reply.code(402).send({
+          error: "Payment Required",
+          code: "QUOTA_EXCEEDED",
+          message: `Storage quota exceeded for workspace '${workspace.slug}' on ${tier} tier. Upgrade to Pro to continue caching.`,
+          tier,
+          upgradeUrl,
+        });
+      }
     }
 
     const uploadUrl = await storage.getPresignedPutUrl(storageKey, {
@@ -392,6 +415,30 @@ export async function registerArtifactRoutes(
           error: "Payload Too Large",
           message: `Artifact size ${contentLength} bytes exceeds cluster maximum of ${config.maxArtifactSizeBytes} bytes`,
         });
+      }
+
+      // Quota and tier enforcement check
+      if (workspace.quotaBytes > 0) {
+        const stats = await store.getWorkspaceStats(workspace.slug);
+        const incoming = contentLength || 0;
+        if (stats.totalSizeBytes + incoming > workspace.quotaBytes) {
+          const tier = workspace.tier || "free";
+          const proConfig = TIER_CONFIGS.pro;
+          const upgradeUrl = `${proConfig.checkoutUrl}?quantity=1&metadata.workspace=${encodeURIComponent(
+            workspace.slug,
+          )}&metadata.tier=pro`;
+
+          reply.header("X-Poly-Upgrade-Url", upgradeUrl);
+          return reply.code(402).send({
+            error: "Payment Required",
+            code: "QUOTA_EXCEEDED",
+            message: `Storage quota of ${(workspace.quotaBytes / (1024 * 1024 * 1024)).toFixed(2)} GB exceeded for workspace '${workspace.slug}' on ${tier} tier. Upgrade to Pro (50 GB) to continue caching.`,
+            tier,
+            currentUsageBytes: stats.totalSizeBytes,
+            quotaBytes: workspace.quotaBytes,
+            upgradeUrl,
+          });
+        }
       }
 
       const putResult = await storage.put(storageKey, bodyData, contentLength);

@@ -6,6 +6,7 @@ import type { MetadataStore } from "./metadata/types.js";
 import type { GitHubOidcVerifier } from "./oidc/verifier.js";
 import { StorageOptimizerDaemon } from "./optimizer/daemon.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
+import { registerBillingRoutes } from "./routes/billing.js";
 import { registerDashboardRoutes } from "./routes/dashboard.js";
 import { registerEventsRoutes } from "./routes/events.js";
 import { registerHealthRoutes } from "./routes/health.js";
@@ -102,6 +103,7 @@ export async function createPolyCloudServer(
   await registerOidcRoutes(app, { store, config, verifier: overrides?.oidcVerifier });
   await registerHealthRoutes(app, { storage, config, startTime });
   await registerMetricsRoutes(app, { store });
+  await registerBillingRoutes(app, { store, config });
 
   const start = async (): Promise<string> => {
     optimizer.start();
