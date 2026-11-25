@@ -17,7 +17,9 @@ Seamlessly accelerates **Poly** and **Turborepo** build pipelines across distrib
 
 ## ⚡ Highlights
 
-- **Multi-Engine Storage Backend**: Pluggable storage supporting **AWS S3**, **Cloudflare R2**, **MinIO**, or high-speed **Local Disk / NVMe** with atomic streaming.
+> **Zero-Cloud Local Default**: `poly-cloud-api` runs 100% locally out of the box using **Local Disk / NVMe (`LocalDisk`)** with zero external accounts, cloud keys, or managed SaaS required. S3, MinIO, Cloudflare R2, and Helm charts below are optional self-hosted backends when your team decides to host a shared cache.
+
+- **Local-First Storage (Default) + Optional Object Backends**: Starts immediately on **Local Disk / NVMe** (`LocalDisk`) with atomic streaming; optionally plug in self-hosted **MinIO**, **AWS S3**, or **Cloudflare R2** via environment variables.
 - **Production Kubernetes Helm Chart**: Turnkey enterprise Helm chart (`charts/poly-cloud-api`) with Horizontal Pod Autoscaler (HPA v2), Ingress with TLS, Prometheus Operator ServiceMonitor, and ConfigMaps/Secrets for AWS S3, Cloudflare R2, and MinIO.
 - **Intelligent LRU Auto-Eviction & Deduplication Engine**: Background Quota Monitor daemon and Least-Recently-Used (LRU) eviction engine that automatically purges stale unaccessed artifacts down to a target low-watermark threshold when workspace quotas are exceeded, while strictly preserving hot dependencies. Cross-branch SHA-256 Content Addressable Storage (CAS) deduplication prevents redundant layer storage and tracks savings in real-time.
 - **Direct-to-Storage Presigned S3/R2 Engine**: High-throughput direct client-to-storage uploads and downloads via short-lived presigned S3 URLs and transparent HTTP 307 redirects, eliminating server egress bandwidth bottlenecks for gigabyte-scale artifacts.
