@@ -62,11 +62,15 @@ export async function registerBillingRoutes(
 
     const tierConfig = TIER_CONFIGS[tier];
     const callback = returnUrl || "https://poly.ritualdev.in/dashboard?upgrade=success";
-    const checkoutUrl = `${tierConfig.checkoutUrl}?quantity=1&metadata.workspace=${encodeURIComponent(
-      workspaceSlug,
-    )}&metadata.tier=${tier}${email ? `&email=${encodeURIComponent(email)}` : ""}&return_url=${encodeURIComponent(
-      callback,
-    )}`;
+    const params = new URLSearchParams();
+    params.set("quantity", "1");
+    params.set("metadata_workspace", workspaceSlug);
+    params.set("metadata_tier", tier);
+    if (email) {
+      params.set("email", email);
+    }
+    params.set("redirect_url", callback);
+    const checkoutUrl = `${tierConfig.checkoutUrl}?${params.toString()}`;
 
     return reply.code(200).send({
       success: true,
@@ -121,7 +125,8 @@ export async function registerBillingRoutes(
   app.post("/api/v1/billing/webhooks/dodo", async (request, reply) => {
     const webhookSecret = options.dodoWebhookSecret || process.env.DODO_WEBHOOK_SECRET;
 
-    // Cryptographic signature check (Fail-closed)
+    const webhookId = (request.headers["webhook-id"] as string) || "";
+    const webhookTimestamp = (request.headers["webhook-timestamp"] as string) || "";
     const sigHeader =
       (request.headers["webhook-signature"] as string) ||
       (request.headers["x-dodo-signature"] as string) ||
@@ -141,7 +146,6 @@ export async function registerBillingRoutes(
       });
     }
 
-    // Raw body validation
     const rawBody =
       typeof request.body === "string"
         ? request.body
@@ -149,19 +153,62 @@ export async function registerBillingRoutes(
           ? request.body.toString("utf-8")
           : JSON.stringify(request.body);
 
-    const sigParts = sigHeader.includes("v1=") ? sigHeader.split(",") : [sigHeader];
-    let signatureToCompare = sigHeader.replace(/^sha256=/, "").trim();
-    for (const part of sigParts) {
-      const [k, v] = part.trim().split("=");
-      if (k === "v1") signatureToCompare = v;
-    }
-
     try {
-      const computedHex = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
-      const sigBuf = Buffer.from(signatureToCompare, "hex");
-      const compBuf = Buffer.from(computedHex, "hex");
+      let verified = false;
 
-      if (sigBuf.length !== compBuf.length || !crypto.timingSafeEqual(sigBuf, compBuf)) {
+      if (webhookId && webhookTimestamp) {
+        // Dodo Payments Standard Webhooks HMAC-SHA256 verification (v1,<base64>)
+        const tsSec = Number.parseInt(webhookTimestamp, 10);
+        if (!Number.isFinite(tsSec) || Math.abs(Date.now() / 1000 - tsSec) > 600) {
+          return reply.code(401).send({
+            error: "Unauthorized",
+            message: "Webhook timestamp outside allowed tolerance window",
+          });
+        }
+        const rawKey = webhookSecret.startsWith("whsec_")
+          ? webhookSecret.slice("whsec_".length)
+          : webhookSecret;
+        const keyBytes = Buffer.from(rawKey, "base64");
+        const signedContent = `${webhookId}.${webhookTimestamp}.${rawBody}`;
+        const expectedB64 = crypto
+          .createHmac("sha256", keyBytes)
+          .update(signedContent)
+          .digest("base64");
+        const expectedBuf = Buffer.from(expectedB64);
+
+        for (const cand of sigHeader.trim().split(/\s+/)) {
+          const [ver, b64Sig] = cand.split(",");
+          if (ver === "v1" && b64Sig) {
+            const candBuf = Buffer.from(b64Sig);
+            if (
+              candBuf.length === expectedBuf.length &&
+              crypto.timingSafeEqual(candBuf, expectedBuf)
+            ) {
+              verified = true;
+              break;
+            }
+          }
+        }
+      } else {
+        // Legacy hex HMAC compatibility fallback when Standard Webhooks headers are omitted
+        const sigParts = sigHeader.includes("v1=") ? sigHeader.split(",") : [sigHeader];
+        let signatureToCompare = sigHeader.replace(/^sha256=/, "").trim();
+        for (const part of sigParts) {
+          const [k, v] = part.trim().split("=");
+          if (k === "v1") signatureToCompare = v;
+        }
+        const computedHex = crypto
+          .createHmac("sha256", webhookSecret)
+          .update(rawBody)
+          .digest("hex");
+        const sigBuf = Buffer.from(signatureToCompare, "hex");
+        const compBuf = Buffer.from(computedHex, "hex");
+        if (sigBuf.length === compBuf.length && crypto.timingSafeEqual(sigBuf, compBuf)) {
+          verified = true;
+        }
+      }
+
+      if (!verified) {
         return reply.code(401).send({
           error: "Unauthorized",
           message: "Invalid Dodo Payments signature",
