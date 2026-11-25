@@ -60,8 +60,9 @@ test("Poly Remote Cloud Cache Tiering & Billing Suite", async (t) => {
     assert.equal(body.workspaceSlug, "startup-team");
     assert.equal(body.tier, "pro");
     assert.ok(body.checkoutUrl.includes("checkout.dodopayments.com"));
-    assert.ok(body.checkoutUrl.includes("metadata.workspace=startup-team"));
-    assert.ok(body.checkoutUrl.includes("metadata.tier=pro"));
+    assert.ok(body.checkoutUrl.includes("metadata_workspace=startup-team"));
+    assert.ok(body.checkoutUrl.includes("metadata_tier=pro"));
+    assert.ok(body.checkoutUrl.includes("redirect_url="));
     assert.ok(body.checkoutUrl.includes("email=lead%40startup.io"));
   });
 
@@ -202,6 +203,73 @@ test("Poly Remote Cloud Cache Tiering & Billing Suite", async (t) => {
       const ws = await store.getWorkspaceBySlug("startup-team");
       assert.equal(ws?.tier, "free");
       assert.equal(ws?.subscriptionStatus, "cancelled");
+    },
+  );
+
+  await t.test(
+    "POST /api/v1/billing/webhooks/dodo verifies Dodo Standard Webhooks v1 HMAC-SHA256 & upgrades to enterprise",
+    async () => {
+      process.env.DODO_WEBHOOK_SECRET = webhookSecret;
+
+      const payload = {
+        event_id: "evt_sub_ent_200",
+        type: "subscription.active",
+        data: {
+          subscription_id: "sub_dodo_ent_200",
+          customer: {
+            customer_id: "cus_dodo_ent_200",
+            email: "cto@startup.io",
+          },
+          metadata: {
+            workspace: "startup-team",
+            tier: "enterprise",
+          },
+        },
+      };
+
+      const rawBody = JSON.stringify(payload);
+      const msgId = "msg_dodo_std_200";
+      const msgTs = String(Math.floor(Date.now() / 1000));
+      const keyBytes = Buffer.from(webhookSecret.slice("whsec_".length), "base64");
+      const v1Sig = crypto
+        .createHmac("sha256", keyBytes)
+        .update(`${msgId}.${msgTs}.${rawBody}`)
+        .digest("base64");
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/billing/webhooks/dodo",
+        headers: {
+          "webhook-id": msgId,
+          "webhook-timestamp": msgTs,
+          "webhook-signature": `v1,${v1Sig}`,
+          "content-type": "application/json",
+        },
+        payload,
+      });
+
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.success, true);
+      assert.equal(body.tier, "enterprise");
+      assert.equal(body.quotaBytes, 500 * 1024 * 1024 * 1024);
+
+      const ws = await store.getWorkspaceBySlug("startup-team");
+      assert.equal(ws?.tier, "enterprise");
+      assert.equal(ws?.subscriptionStatus, "active");
+
+      const badRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/billing/webhooks/dodo",
+        headers: {
+          "webhook-id": msgId,
+          "webhook-timestamp": msgTs,
+          "webhook-signature": "v1,Zm9yZ2VkX3NpZ25hdHVyZV9ieXRlcw==",
+          "content-type": "application/json",
+        },
+        payload,
+      });
+      assert.equal(badRes.statusCode, 401);
     },
   );
 });
